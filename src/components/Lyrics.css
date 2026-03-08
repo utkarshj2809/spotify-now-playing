@@ -1,0 +1,116 @@
+/* ── Lyrics component ─────────────────────────────────────── */
+.lrc-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Top / bottom fade gradients */
+.lrc-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 72px;
+  pointer-events: none;
+  z-index: 2;
+}
+.lrc-fade--top {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.6) 0%, transparent 100%);
+}
+.lrc-fade--bottom {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%);
+}
+
+/* Scrollable list */
+.lrc-list {
+  list-style: none;
+  padding: 80px 28px 80px;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lrc-list::-webkit-scrollbar { display: none; }
+
+/* Individual line */
+.lrc-line {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: rgba(255,255,255,0.18);
+  padding: 7px 10px;
+  border-radius: 10px;
+  cursor: default;
+  transition:
+    color       0.45s ease,
+    font-size   0.35s ease,
+    transform   0.35s ease,
+    background  0.35s ease;
+  will-change: transform, color;
+}
+
+/* Active line */
+.lrc-line--active {
+  color: var(--text-1) !important;
+  font-size: 1.55rem;
+  transform: translateX(4px);
+  background: rgba(255,255,255,0.05);
+}
+
+/* Past lines */
+.lrc-line--past {
+  color: rgba(255,255,255,0.38);
+}
+
+/* Spacer line (empty) */
+.lrc-line--spacer {
+  height: 16px;
+}
+
+/* Empty state */
+.lrc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--text-3);
+}
+.lrc-empty svg {
+  width: 36px;
+  height: 36px;
+  opacity: 0.4;
+}
+.lrc-empty p {
+  font-size: 0.9rem;
+}
+
+/* Unsynced note */
+.lrc-plain-note {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--text-3);
+  z-index: 3;
+}
+
+@media (max-width: 820px) {
+  .lrc-line         { font-size: 1.15rem; }
+  .lrc-line--active { font-size: 1.3rem;  }
+}
+
+@media (max-width: 480px) {
+  .lrc-line         { font-size: 1rem;   }
+  .lrc-line--active { font-size: 1.15rem; }
+}
