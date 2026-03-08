@@ -35,46 +35,42 @@
   scrollbar-width: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 .lrc-list::-webkit-scrollbar { display: none; }
 
 /* Individual line */
 .lrc-line {
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  line-height: 1.45;
+  line-height: 1.5;
   color: rgba(255,255,255,0.18);
-  padding: 7px 10px;
-  border-radius: 10px;
+  padding: 12px 14px;
   cursor: default;
   transition:
-    color       0.45s ease,
-    font-size   0.35s ease,
-    transform   0.35s ease,
-    background  0.35s ease;
-  will-change: transform, color;
+    color       0.4s ease,
+    font-size   0.3s ease,
+    font-weight 0.3s ease;
+  will-change: color;
 }
 
 /* Active line (line-by-line lyrics) — whole line pops and glows */
 .lrc-line--active {
   color: var(--text-1) !important;
-  font-size: 1.55rem;
-  transform: translateX(4px);
-  background: rgba(255,255,255,0.05);
-  text-shadow: 0 0 24px rgba(255,255,255,0.2);
+  font-size: 1.7rem;
+  font-weight: 800;
+  text-shadow: 0 0 28px rgba(255,255,255,0.18);
 }
 
 /* Active line (word/syllable lyrics) — no pop-up; individual words glow instead */
 .lrc-line--active-word {
   color: rgba(255,255,255,0.5);
-  font-size: 1.35rem;
-  background: transparent;
+  font-size: 1.5rem;
 }
 
 /* Past lines */
 .lrc-line--past {
-  color: rgba(255,255,255,0.38);
+  color: rgba(255,255,255,0.4);
 }
 
 /* Music interlude line (empty timestamp — no sung text) */
@@ -157,13 +153,13 @@
 }
 
 @media (max-width: 820px) {
-  .lrc-line              { font-size: 1.15rem; }
-  .lrc-line--active      { font-size: 1.3rem;  }
-  .lrc-line--active-word { font-size: 1.15rem; }
+  .lrc-line              { font-size: 1.25rem; }
+  .lrc-line--active      { font-size: 1.45rem; }
+  .lrc-line--active-word { font-size: 1.25rem; }
 }
 
 @media (max-width: 480px) {
-  .lrc-line              { font-size: 1rem;    }
-  .lrc-line--active      { font-size: 1.15rem; }
-  .lrc-line--active-word { font-size: 1rem;    }
+  .lrc-line              { font-size: 1.1rem;  }
+  .lrc-line--active      { font-size: 1.25rem; }
+  .lrc-line--active-word { font-size: 1.1rem;  }
 }

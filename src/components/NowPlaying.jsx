@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getCurrentlyPlaying, logout } from '../utils/spotify';
 import { fetchLyrics, getActiveLyricIndex } from '../utils/lrclib';
-import { fetchSpotifyLyrics } from '../utils/spotifylyrics';
 import {
   searchAppleMusic,
   fetchAppleMusicLyrics,
@@ -18,6 +17,14 @@ const POLL_MS = 3_000;
 function fmt(ms) {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h >= 5  && h < 12) return 'Good Morning';
+  if (h >= 12 && h < 17) return 'Good Afternoon';
+  if (h >= 17 && h < 21) return 'Good Evening';
+  return 'Good Night';
 }
 
 /** Extract the dominant (darkened) RGB from a small canvas sample of the art. */
@@ -49,7 +56,7 @@ export default function NowPlaying({ onLogout }) {
 
   // ── Provider state ────────────────────────────────────────────
   const [provider, setProvider]   = useState(
-    () => localStorage.getItem('lyrics-provider') || 'lrclib',
+    () => localStorage.getItem('lyrics-provider') || 'apple-music',
   );
   // Apple Music search results & picker
   const [amResults, setAmResults]       = useState([]);
@@ -118,11 +125,8 @@ export default function NowPlaying({ onLogout }) {
         setLyrics(null);
         lyricsRef.current = null;
       }
-    } else if (providerRef.current === 'spotify') {
-      // Spotify lyrics via paxsenix (LRC text by Spotify track ID)
-      commitLyrics(await fetchSpotifyLyrics(item.id));
     } else {
-      // LRCLib (default)
+      // LRCLib
       commitLyrics(await fetchLyrics({
         title:    item.name,
         artist:   primaryArtist,
@@ -335,6 +339,8 @@ export default function NowPlaying({ onLogout }) {
           Now Playing
         </span>
 
+        <span className="np-header-greeting">{getGreeting()}</span>
+
         <div className="np-header-actions">
           {/* Provider selector */}
           <div className="np-provider-toggle">
@@ -344,13 +350,6 @@ export default function NowPlaying({ onLogout }) {
               title="Use LRCLib lyrics"
             >
               LRCLib
-            </button>
-            <button
-              className={`np-provider-btn ${provider === 'spotify' ? 'np-provider-btn--active' : ''}`}
-              onClick={() => handleProviderChange('spotify')}
-              title="Use Spotify lyrics"
-            >
-              Spotify
             </button>
             <button
               className={`np-provider-btn ${provider === 'apple-music' ? 'np-provider-btn--active' : ''}`}
