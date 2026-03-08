@@ -179,13 +179,13 @@ export default function NowPlaying({ onLogout }) {
     }
   }, [extractColor, fetchLyricsForTrack]);
 
-  // ── Smooth progress ticker (runs every second) ────────────────
+  // ── Smooth progress ticker (runs every 100 ms for word-level accuracy) ──
   const startTicker = useCallback(() => {
     if (tickerRef.current) clearInterval(tickerRef.current);
     tickerRef.current = setInterval(() => {
       if (!playingRef.current) return;
 
-      progressRef.current += 1_000;
+      progressRef.current += 100;
       const ms = progressRef.current;
       setProgress(ms);
 
@@ -193,7 +193,7 @@ export default function NowPlaying({ onLogout }) {
       if (lines) {
         setActiveIdx(getActiveLyricIndex(lines, ms / 1000));
       }
-    }, 1_000);
+    }, 100);
   }, []);
 
   // ── Mount / unmount ───────────────────────────────────────────
