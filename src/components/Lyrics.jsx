@@ -36,8 +36,6 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec }) {
 
   return (
     <div className="lrc-wrapper">
-      <div className="lrc-fade lrc-fade--top" />
-
       <ul className="lrc-list" ref={containerRef}>
         {lines.map((line, i) => {
           const isActive    = i === activeIndex;
@@ -91,8 +89,6 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec }) {
           );
         })}
       </ul>
-
-      <div className="lrc-fade lrc-fade--bottom" />
 
       {!isSynced && (
         <p className="lrc-plain-note">Unsynced lyrics</p>

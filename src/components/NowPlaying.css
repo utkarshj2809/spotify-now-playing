@@ -67,7 +67,7 @@
   left: 50%;
   transform: translateX(-50%);
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-2);
   letter-spacing: 0.02em;
   pointer-events: none;
