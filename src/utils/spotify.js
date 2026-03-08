@@ -5,6 +5,10 @@ const SPOTIFY_SCOPES = [
 
 const REDIRECT_URI = window.location.origin + window.location.pathname;
 
+// Client ID baked in at build time by the app owner (via VITE_SPOTIFY_CLIENT_ID).
+// When set, visitors never need to enter a Client ID themselves.
+export const BUILT_IN_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '';
+
 function generateRandomString(length) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   // Use rejection sampling to eliminate modulo bias.
@@ -33,14 +37,22 @@ async function generateCodeChallenge(verifier) {
 }
 
 export async function initiateSpotifyLogin(clientId) {
+  // Use the provided ID, the built-in env-var ID, or fall back to localStorage.
+  const id = clientId || getClientId();
+  if (!id) throw new Error('No Spotify Client ID configured.');
+
   const verifier = generateRandomString(64);
   const challenge = await generateCodeChallenge(verifier);
 
   localStorage.setItem('spotify_code_verifier', verifier);
-  localStorage.setItem('spotify_client_id', clientId);
+  // Only persist to localStorage when NOT using the built-in env-var ID
+  // (so the build-time value always wins after a logout/re-login).
+  if (!BUILT_IN_CLIENT_ID) {
+    localStorage.setItem('spotify_client_id', id);
+  }
 
   const params = new URLSearchParams({
-    client_id: clientId,
+    client_id: id,
     response_type: 'code',
     redirect_uri: REDIRECT_URI,
     code_challenge_method: 'S256',
@@ -52,8 +64,8 @@ export async function initiateSpotifyLogin(clientId) {
 }
 
 export async function exchangeCodeForToken(code) {
-  const verifier = localStorage.getItem('spotify_code_verifier');
-  const clientId = localStorage.getItem('spotify_client_id');
+  const verifier  = localStorage.getItem('spotify_code_verifier');
+  const clientId  = getClientId();
 
   if (!verifier || !clientId) {
     throw new Error('Missing code verifier or client ID');
@@ -89,7 +101,7 @@ export async function exchangeCodeForToken(code) {
 
 export async function refreshAccessToken() {
   const refreshToken = localStorage.getItem('spotify_refresh_token');
-  const clientId = localStorage.getItem('spotify_client_id');
+  const clientId     = getClientId();
 
   if (!refreshToken || !clientId) {
     throw new Error('No refresh token available');
@@ -166,5 +178,6 @@ export function isLoggedIn() {
 }
 
 export function getClientId() {
-  return localStorage.getItem('spotify_client_id') || '';
+  // Prefer the build-time env var so the owner's Client ID is always used.
+  return BUILT_IN_CLIENT_ID || localStorage.getItem('spotify_client_id') || '';
 }

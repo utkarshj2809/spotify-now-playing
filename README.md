@@ -50,15 +50,33 @@ npm install
 
 > No Client Secret is needed — the app uses the PKCE flow entirely in the browser.
 
-### 3. Run
+### 3. Configure the Client ID (recommended)
+
+Copy `.env.example` to `.env` and paste your Client ID:
+
+```bash
+cp .env.example .env
+# then edit .env:
+# VITE_SPOTIFY_CLIENT_ID=your_32_char_client_id_here
+```
+
+When `VITE_SPOTIFY_CLIENT_ID` is set at build time, **any visitor can log in with their own
+Spotify account by clicking a single button** — no Client ID entry required on their end.
+
+> The `.env` file is gitignored so your Client ID is never committed to the repository.
+
+If you skip this step the app falls back to a manual-entry form where each user must supply
+their own Client ID (the original self-hosting flow).
+
+### 4. Run
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`, paste your Client ID, and click **Connect to Spotify**.
+Open `http://localhost:5173` and click **Connect to Spotify**.
 
-### 4. Build for production
+### 5. Build for production
 
 ```bash
 npm run build
@@ -81,7 +99,7 @@ Remember to add your production URL as a Redirect URI in your Spotify app settin
 
 ## 📖 How it works
 
-1. **Auth**: PKCE code-challenge flow — the user's Client ID is stored in `localStorage`; no secret is ever needed.
+1. **Auth**: PKCE code-challenge flow — no client secret is ever needed. When `VITE_SPOTIFY_CLIENT_ID` is set the app owner's Client ID is baked in at build time; otherwise each user enters their own. Either way every user authenticates with their own Spotify account.
 2. **Polling**: The app polls `/v1/me/player/currently-playing` every 3 seconds. A 1-second in-browser ticker keeps the progress bar smooth between polls.
 3. **Lyrics**: On track change, `GET /api/get` is called with `track_name`, `artist_name` (primary only), `album_name`, and `duration` (decimal seconds). A 404 falls back to `GET /api/search?q=artist+title`. The active lyric line scrolls to centre automatically.
 4. **Colour**: A tiny canvas samples the album art to extract a dominant colour used for the background tint.
