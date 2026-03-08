@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getCurrentlyPlaying, logout } from '../utils/spotify';
 import { fetchLyrics, getActiveLyricIndex } from '../utils/lrclib';
+import { fetchSpotifyLyrics } from '../utils/spotifylyrics';
 import {
   searchAppleMusic,
   fetchAppleMusicLyrics,
@@ -87,6 +88,14 @@ export default function NowPlaying({ onLogout }) {
     img.src = url;
   }, []);
 
+  // ── Shared helper: commit a fetched lyrics result to state ───
+  const commitLyrics = useCallback((result) => {
+    const isSynced = Array.isArray(result) && result.every((l) => l.time !== null);
+    setSynced(isSynced);
+    setLyrics(result);
+    lyricsRef.current = result;
+  }, []);
+
   // ── Fetch lyrics for a track (uses current provider via ref) ─
   const fetchLyricsForTrack = useCallback(async (item) => {
     const primaryArtist = item.artists?.[0]?.name ?? '';
@@ -102,30 +111,26 @@ export default function NowPlaying({ onLogout }) {
       const best = findBestMatch(results, { artist: primaryArtist, title: item.name });
       if (best) {
         setAmSelectedId(best.id);
-        const result = await fetchAppleMusicLyrics(best.id);
-        setSynced(Array.isArray(result) && result.length > 0);
-        setLyrics(result);
-        lyricsRef.current = result;
+        commitLyrics(await fetchAppleMusicLyrics(best.id));
       } else {
         // No match found — open picker so the user can choose
         setAmPickerOpen(true);
         setLyrics(null);
         lyricsRef.current = null;
       }
+    } else if (providerRef.current === 'spotify') {
+      // Spotify lyrics via paxsenix (LRC text by Spotify track ID)
+      commitLyrics(await fetchSpotifyLyrics(item.id));
     } else {
       // LRCLib (default)
-      const result = await fetchLyrics({
+      commitLyrics(await fetchLyrics({
         title:    item.name,
         artist:   primaryArtist,
         album:    albumName,
         duration: durationSec,
-      });
-      const isSynced = Array.isArray(result) && result.every((l) => l.time !== null);
-      setSynced(isSynced);
-      setLyrics(result);
-      lyricsRef.current = result;
+      }));
     }
-  }, []);
+  }, [commitLyrics]);
 
   // ── Core poller ───────────────────────────────────────────────
   const poll = useCallback(async () => {
@@ -208,6 +213,16 @@ export default function NowPlaying({ onLogout }) {
     }
   }, [lyrics]);
 
+  // ── Update browser tab title with the current track ──────────
+  useEffect(() => {
+    if (track) {
+      const artist = track.artists?.map((a) => a.name).join(', ') ?? '';
+      document.title = artist ? `${track.name} · ${artist}` : track.name;
+    } else {
+      document.title = 'Now Playing';
+    }
+  }, [track]);
+
   // ── Handlers ─────────────────────────────────────────────────
   function handleLogout() { logout(); onLogout(); }
 
@@ -237,9 +252,7 @@ export default function NowPlaying({ onLogout }) {
     lyricsRef.current = null;
     setActiveIdx(-1);
     const fetched = await fetchAppleMusicLyrics(result.id);
-    setSynced(Array.isArray(fetched) && fetched.length > 0);
-    setLyrics(fetched);
-    lyricsRef.current = fetched;
+    commitLyrics(fetched);
     if (fetched) {
       setActiveIdx(getActiveLyricIndex(fetched, progressRef.current / 1000));
     }
@@ -331,6 +344,13 @@ export default function NowPlaying({ onLogout }) {
               title="Use LRCLib lyrics"
             >
               LRCLib
+            </button>
+            <button
+              className={`np-provider-btn ${provider === 'spotify' ? 'np-provider-btn--active' : ''}`}
+              onClick={() => handleProviderChange('spotify')}
+              title="Use Spotify lyrics"
+            >
+              Spotify
             </button>
             <button
               className={`np-provider-btn ${provider === 'apple-music' ? 'np-provider-btn--active' : ''}`}

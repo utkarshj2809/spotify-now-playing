@@ -54,11 +54,17 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec }) {
                 'lrc-line',
                 isActive ? 'lrc-line--active'  : '',
                 isPast   ? 'lrc-line--past'    : '',
-                isEmpty  ? 'lrc-line--spacer'  : '',
+                isEmpty  ? 'lrc-line--music'   : '',
               ].filter(Boolean).join(' ')}
             >
               {isEmpty
-                ? '\u00A0'
+                ? (
+                  <>
+                    <span className="lrc-note" style={{ animationDelay: '0s' }}>♪</span>
+                    <span className="lrc-note" style={{ animationDelay: '0.2s' }}>♫</span>
+                    <span className="lrc-note" style={{ animationDelay: '0.4s' }}>♪</span>
+                  </>
+                )
                 : hasWords
                   ? line.words.map((w, wi) => (
                       <span

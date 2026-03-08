@@ -69,9 +69,36 @@
   color: rgba(255,255,255,0.38);
 }
 
-/* Spacer line (empty) */
-.lrc-line--spacer {
-  height: 16px;
+/* Music interlude line (empty timestamp — no sung text) */
+.lrc-line--music {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 1.1rem;
+}
+
+/* Each note character */
+.lrc-note {
+  display: inline-block;
+  opacity: 0.35;
+  transition: opacity 0.35s ease, transform 0.35s ease, color 0.35s ease;
+}
+
+/* Bounce + brighten when the line is active */
+.lrc-line--active .lrc-note {
+  opacity: 1;
+  color: var(--accent);
+  animation: note-bounce 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes note-bounce {
+  from { transform: translateY(0);    }
+  to   { transform: translateY(-5px); }
+}
+
+/* Past music lines — slightly dimmed like past lyric lines */
+.lrc-line--past .lrc-note {
+  opacity: 0.55;
 }
 
 /* Empty state */
