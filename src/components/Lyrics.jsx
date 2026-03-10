@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react';
 import { getActiveWordIndex } from '../utils/applemusic';
 import './Lyrics.css';
 
-export default function Lyrics({ lines, activeIndex, isSynced, progressSec }) {
+export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSeek }) {
   const containerRef = useRef(null);
   const activeRef    = useRef(null);
 
@@ -54,12 +54,14 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec }) {
                 'lrc-line',
                 isActive
                   ? isWordLevel
-                    ? 'lrc-line--active-word'  // syllable lyrics: no pop-up, words glow instead
-                    : 'lrc-line--active'       // line lyrics: whole-line highlight
+                    ? 'lrc-line--active-word'
+                    : 'lrc-line--active'
                   : '',
                 isPast   ? 'lrc-line--past'    : '',
                 isEmpty  ? 'lrc-line--music'   : '',
+                onSeek && line.time != null ? 'lrc-line--seekable' : '',
               ].filter(Boolean).join(' ')}
+              onClick={onSeek && line.time != null ? () => onSeek(line.time * 1000) : undefined}
             >
               {isEmpty
                 ? (
@@ -80,6 +82,8 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec }) {
                               ? 'lrc-word lrc-word--lit'
                               : 'lrc-word'
                         }
+                        onClick={onSeek && w.time != null ? (e) => { e.stopPropagation(); onSeek(w.time * 1000); } : undefined}
+                        style={onSeek && w.time != null ? { cursor: 'pointer' } : undefined}
                       >
                         {wi < line.words.length - 1 ? `${w.text} ` : w.text}
                       </span>

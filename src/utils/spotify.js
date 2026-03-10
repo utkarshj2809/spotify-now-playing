@@ -1,6 +1,7 @@
 const SPOTIFY_SCOPES = [
   'user-read-currently-playing',
   'user-read-playback-state',
+  'user-modify-playback-state',
 ].join(' ');
 
 const REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -180,4 +181,52 @@ export function isLoggedIn() {
 export function getClientId() {
   // Prefer the build-time env var so the owner's Client ID is always used.
   return BUILT_IN_CLIENT_ID || localStorage.getItem('spotify_client_id') || '';
+}
+
+// ── Playback controls ─────────────────────────────────────────
+
+export async function skipToNext() {
+  const token = await getValidToken();
+  if (!token) return;
+  const res = await fetch('https://api.spotify.com/v1/me/player/next', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 204) {
+    console.warn('skipToNext failed:', res.status);
+  }
+}
+
+export async function skipToPrevious() {
+  const token = await getValidToken();
+  if (!token) return;
+  const res = await fetch('https://api.spotify.com/v1/me/player/previous', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 204) {
+    console.warn('skipToPrevious failed:', res.status);
+  }
+}
+
+export async function seekToPosition(positionMs) {
+  const token = await getValidToken();
+  if (!token) return;
+  const res = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${Math.round(positionMs)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 204) {
+    console.warn('seekToPosition failed:', res.status);
+  }
+}
+
+export async function getQueue() {
+  const token = await getValidToken();
+  if (!token) return null;
+  const res = await fetch('https://api.spotify.com/v1/me/player/queue', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return res.json(); // { currently_playing, queue: [...] }
 }

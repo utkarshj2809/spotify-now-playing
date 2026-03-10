@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentlyPlaying, logout } from '../utils/spotify';
+import { getCurrentlyPlaying, logout, skipToNext, skipToPrevious, seekToPosition, getQueue } from '../utils/spotify';
 import { fetchLyrics, getActiveLyricIndex } from '../utils/lrclib';
 import {
   searchAppleMusic,
@@ -67,6 +67,8 @@ export default function NowPlaying({ onLogout }) {
   const [accentColor, setAccentColor] = useState('rgb(18,18,18)');
   const [projector, setProjector]     = useState(false);
   const [lyricsOpen, setLyricsOpen]   = useState(true);
+  const [queue, setQueue]             = useState([]);
+  const [queueOpen, setQueueOpen]     = useState(false);
 
   // ── Internal refs (survive re-renders without causing them) ──
   const trackIdRef   = useRef(null);
@@ -139,7 +141,10 @@ export default function NowPlaying({ onLogout }) {
   // ── Core poller ───────────────────────────────────────────────
   const poll = useCallback(async () => {
     try {
-      const data = await getCurrentlyPlaying();
+      const [data, queueData] = await Promise.all([
+        getCurrentlyPlaying(),
+        getQueue(),
+      ]);
 
       if (!data || !data.item) {
         setTrack(null);
@@ -156,6 +161,11 @@ export default function NowPlaying({ onLogout }) {
       playingRef.current  = isPlaying;
       setProgress(data.progress_ms);
       setPlaying(isPlaying);
+
+      // Update queue on every poll
+      if (queueData?.queue) {
+        setQueue(queueData.queue.filter((t) => t.type === 'track').slice(0, 15));
+      }
 
       // Only fetch lyrics / update track when the song actually changes
       if (item.id === trackIdRef.current) return;
@@ -232,6 +242,42 @@ export default function NowPlaying({ onLogout }) {
 
   function retry() { setError(''); poll(); }
 
+  async function handleSkipNext() {
+    await skipToNext();
+    setTimeout(poll, 800);
+  }
+
+  async function handleSkipPrev() {
+    await skipToPrevious();
+    setTimeout(poll, 800);
+  }
+
+  function handleSeek(e) {
+    if (!track?.duration_ms) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const posMs = fraction * track.duration_ms;
+    // Optimistic update: move the UI immediately for instant feedback.
+    // The next poll (≤3 s) will correct the position if the API call fails.
+    progressRef.current = posMs;
+    setProgress(posMs);
+    if (lyricsRef.current) {
+      setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
+    }
+    seekToPosition(posMs);
+  }
+
+  function handleLyricSeek(posMs) {
+    // Optimistic update: move the UI immediately for instant feedback.
+    // The next poll (≤3 s) will correct the position if the API call fails.
+    progressRef.current = posMs;
+    setProgress(posMs);
+    if (lyricsRef.current) {
+      setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
+    }
+    seekToPosition(posMs);
+  }
+
   // Switch provider and re-fetch lyrics for the current track
   async function handleProviderChange(next) {
     setProvider(next);
@@ -292,6 +338,7 @@ export default function NowPlaying({ onLogout }) {
   const album    = track.album?.name ?? '';
   const pct      = track.duration_ms ? Math.min(progress / track.duration_ms, 1) * 100 : 0;
   const hasLyrics = Array.isArray(lyrics) && lyrics.length > 0;
+  const panelOpen = amPickerOpen || (queueOpen && queue.length > 0) || (hasLyrics && lyricsOpen);
 
   // ── Render: projector mode ────────────────────────────────────
   if (projector) {
@@ -378,7 +425,7 @@ export default function NowPlaying({ onLogout }) {
       </header>
 
       {/* Main content */}
-      <main className={`np-main ${hasLyrics && lyricsOpen ? 'np-main--split' : ''}`}>
+      <main className={`np-main ${panelOpen ? 'np-main--split' : ''}`}>
         {/* ── Left panel: player ─────────────────────────────── */}
         <section className="np-player">
           {/* Album art */}
@@ -399,63 +446,113 @@ export default function NowPlaying({ onLogout }) {
             <p className="np-album">{album}</p>
           </div>
 
-          {/* Progress bar */}
+          {/* Clickable progress / scrubber */}
           <div className="np-scrubber">
             <span className="np-time">{fmt(progress)}</span>
-            <div className="np-bar-track" role="progressbar" aria-valuenow={pct}>
+            <div
+              className="np-bar-track np-bar-track--seekable"
+              role="slider"
+              aria-valuenow={Math.round(pct)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Track progress"
+              onClick={handleSeek}
+            >
               <div className="np-bar-fill" style={{ width: `${pct}%` }} />
             </div>
             <span className="np-time">{fmt(track.duration_ms)}</span>
           </div>
 
-          {/* Status / lyrics toggle */}
+          {/* Playback controls */}
           <div className="np-controls">
-            {playing ? (
-              <div className="np-playing-tag" aria-label="Playing">
-                <span className="np-eq-bar" /><span className="np-eq-bar" /><span className="np-eq-bar" /><span className="np-eq-bar" />
-                Playing
-              </div>
-            ) : (
-              <div className="np-paused-tag">Paused</div>
-            )}
-
-            {hasLyrics && (
+            {/* ── Row 1: prev / status / next ── */}
+            <div className="np-playback-row">
               <button
-                className={`np-lyrics-toggle ${lyricsOpen ? 'active' : ''}`}
-                onClick={() => setLyricsOpen((v) => !v)}
+                className="np-skip-btn"
+                onClick={handleSkipPrev}
+                title="Previous track"
+                aria-label="Previous track"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 6h18M3 12h18M3 18h12" />
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M4 4h2v12H4V4zm10 0l-8 6 8 6V4z" />
                 </svg>
-                Lyrics
               </button>
-            )}
 
-            {/* Apple Music: button to open/re-open result picker */}
-            {provider === 'apple-music' && amResults.length > 0 && (
+              {playing ? (
+                <div className="np-playing-tag" aria-label="Playing">
+                  <span className="np-eq-bar" /><span className="np-eq-bar" /><span className="np-eq-bar" /><span className="np-eq-bar" />
+                  Playing
+                </div>
+              ) : (
+                <div className="np-paused-tag">Paused</div>
+              )}
+
               <button
-                className="np-lyrics-toggle"
-                onClick={() => setAmPickerOpen((v) => !v)}
-                title="Choose a different Apple Music match"
+                className="np-skip-btn"
+                onClick={handleSkipNext}
+                title="Next track"
+                aria-label="Next track"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M14 4h2v12h-2V4zM4 4l8 6-8 6V4z" />
                 </svg>
-                Match
               </button>
-            )}
+            </div>
+
+            {/* ── Row 2: pill toggles ── */}
+            <div className="np-pill-row">
+              {hasLyrics && (
+                <button
+                  className={`np-lyrics-toggle ${lyricsOpen && !queueOpen ? 'active' : ''}`}
+                  onClick={() => { setLyricsOpen((v) => !v); setQueueOpen(false); }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M3 12h18M3 18h12" />
+                  </svg>
+                  Lyrics
+                </button>
+              )}
+
+              {queue.length > 0 && (
+                <button
+                  className={`np-lyrics-toggle ${queueOpen ? 'active' : ''}`}
+                  onClick={() => { setQueueOpen((v) => !v); setLyricsOpen(false); }}
+                  title="Up Next queue"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 5h18M3 10h18M3 15h12" />
+                    <path d="M17 17l3 2.5-3 2.5V17z" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
+                  Up Next
+                </button>
+              )}
+
+              {/* Apple Music: button to open/re-open result picker */}
+              {provider === 'apple-music' && amResults.length > 0 && (
+                <button
+                  className="np-lyrics-toggle"
+                  onClick={() => setAmPickerOpen((v) => !v)}
+                  title="Choose a different Apple Music match"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                  </svg>
+                  Match
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Inline active lyric peek (when lyrics panel is collapsed) */}
-          {hasLyrics && !lyricsOpen && synced && activeIdx >= 0 && lyrics[activeIdx]?.text && (
-            <p className="np-lyric-peek" onClick={() => setLyricsOpen(true)}>
+          {hasLyrics && !lyricsOpen && !queueOpen && synced && activeIdx >= 0 && lyrics[activeIdx]?.text && (
+            <p className="np-lyric-peek" onClick={() => { setLyricsOpen(true); setQueueOpen(false); }}>
               {lyrics[activeIdx].text}
             </p>
           )}
         </section>
 
-        {/* ── Right panel: lyrics or AM picker ──────────────── */}
-        {(hasLyrics && lyricsOpen) || amPickerOpen ? (
+        {/* ── Right panel: queue, lyrics, or AM picker ──────── */}
+        {panelOpen ? (
           <section className="np-lyrics-panel">
             {amPickerOpen ? (
               /* Apple Music search result picker */
@@ -495,12 +592,40 @@ export default function NowPlaying({ onLogout }) {
                   </ul>
                 )}
               </div>
+            ) : queueOpen && queue.length > 0 ? (
+              /* Up Next queue panel */
+              <div className="np-queue">
+                <div className="np-queue-header">
+                  <span>Up Next</span>
+                  <button className="am-picker-close" onClick={() => setQueueOpen(false)}>✕</button>
+                </div>
+                <ul className="np-queue-list">
+                  {queue.map((t, i) => {
+                    const qArt    = t.album?.images?.[1]?.url ?? t.album?.images?.[0]?.url;
+                    const qArtist = t.artists?.map((a) => a.name).join(', ') ?? '';
+                    return (
+                      <li key={`${t.id}-${i}`} className="np-queue-item">
+                        <span className="np-queue-num">{i + 1}</span>
+                        {qArt && (
+                          <img className="np-queue-art" src={qArt} alt={t.name} />
+                        )}
+                        <div className="np-queue-meta">
+                          <span className="np-queue-title">{t.name}</span>
+                          <span className="np-queue-artist">{qArtist}</span>
+                        </div>
+                        <span className="np-queue-dur">{fmt(t.duration_ms)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             ) : (
               <Lyrics
                 lines={lyrics}
                 activeIndex={activeIdx}
                 isSynced={synced}
                 progressSec={progress / 1000}
+                onSeek={handleLyricSeek}
               />
             )}
           </section>

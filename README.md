@@ -8,8 +8,11 @@ No backend required — everything runs in the browser using the Spotify PKCE OA
 | | |
 |---|---|
 | 🎵 | Real-time track, artist, album, and album art |
-| ⏱️ | Smooth progress bar with live timestamps |
-| 📃 | Synced lyrics via [lrclib.net](https://lrclib.net) — Apple Music-style auto-scrolling |
+| ⏱️ | Smooth progress bar with live timestamps — **click anywhere to seek** |
+| ⏮ ⏭ | **Skip to previous / next track** with one tap |
+| 📋 | **Up Next queue** — see the upcoming tracks in your Spotify queue |
+| 📃 | Synced lyrics via [lrclib.net](https://lrclib.net) & Apple Music — Apple Music-style auto-scrolling |
+| 🎯 | **Lyric timestamp seeking** — click any lyric line (or word) to jump to that moment |
 | 🎨 | Dynamic background that shifts to match each album's colours |
 | 🖥️ | **Projector / ambient mode** — minimal fullscreen screensaver, perfect for a second monitor |
 | 📱 | Fully responsive — stacks gracefully on mobile |
@@ -91,8 +94,9 @@ Remember to add your production URL as a Redirect URI in your Spotify app settin
 ## 🛠️ Tech Stack
 
 - **Vite + React 19** — fast dev server & build
-- **Spotify Web API** — `user-read-currently-playing` + `user-read-playback-state` scopes
+- **Spotify Web API** — `user-read-currently-playing`, `user-read-playback-state`, `user-modify-playback-state` scopes
 - **lrclib.net** — free synced-lyrics API (`GET /api/get` with `/api/search` fallback)
+- **Apple Music** — word-level (syllable) synced lyrics via the MusicKit catalogue
 - Pure CSS — no UI framework; uses CSS custom properties for theming
 
 ---
@@ -100,6 +104,8 @@ Remember to add your production URL as a Redirect URI in your Spotify app settin
 ## 📖 How it works
 
 1. **Auth**: PKCE code-challenge flow — no client secret is ever needed. When `VITE_SPOTIFY_CLIENT_ID` is set the app owner's Client ID is baked in at build time; otherwise each user enters their own. Either way every user authenticates with their own Spotify account.
-2. **Polling**: The app polls `/v1/me/player/currently-playing` every 3 seconds. A 1-second in-browser ticker keeps the progress bar smooth between polls.
-3. **Lyrics**: On track change, `GET /api/get` is called with `track_name`, `artist_name` (primary only), `album_name`, and `duration` (decimal seconds). A 404 falls back to `GET /api/search?q=artist+title`. The active lyric line scrolls to centre automatically.
-4. **Colour**: A tiny canvas samples the album art to extract a dominant colour used for the background tint.
+2. **Polling**: The app polls `/v1/me/player/currently-playing` and `/v1/me/player/queue` in parallel every 3 seconds. A 100 ms in-browser ticker keeps the progress bar and lyric highlights smooth between polls.
+3. **Playback controls**: Skip previous/next calls `/v1/me/player/previous` and `/v1/me/player/next` (POST). Seeking calls `/v1/me/player/seek?position_ms=…` (PUT). All three require the `user-modify-playback-state` scope — users who already authorised the app will need to **log out and log back in** once to grant this new permission.
+4. **Lyrics**: On track change, `GET /api/get` is called with `track_name`, `artist_name` (primary only), `album_name`, and `duration` (decimal seconds). A 404 falls back to `GET /api/search?q=artist+title`. The active lyric line scrolls to centre automatically. Clicking any synced line (or individual word in Apple Music word-level lyrics) seeks Spotify playback to that timestamp.
+5. **Queue**: `/v1/me/player/queue` returns up to 15 upcoming tracks displayed in the "Up Next" panel, updated every poll cycle.
+6. **Colour**: A tiny canvas samples the album art to extract a dominant colour used for the background tint.

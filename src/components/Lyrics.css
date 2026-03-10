@@ -134,6 +134,18 @@
   z-index: 3;
 }
 
+/* Clickable / seekable lyric line */
+.lrc-line--seekable {
+  cursor: pointer;
+}
+.lrc-line--seekable:hover {
+  color: rgba(255,255,255,0.45);
+}
+.lrc-line--active.lrc-line--seekable:hover,
+.lrc-line--active-word.lrc-line--seekable:hover {
+  color: var(--text-1);
+}
+
 @media (max-width: 820px) {
   .lrc-line              { font-size: 1.25rem; }
   .lrc-line--active      { font-size: 1.25rem; }

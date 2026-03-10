@@ -205,6 +205,19 @@
   background: rgba(255,255,255,0.14);
   border-radius: 4px;
   overflow: hidden;
+  transition: height 0.18s ease, background 0.18s ease;
+}
+
+/* Clickable / seekable variant */
+.np-bar-track--seekable {
+  cursor: pointer;
+}
+.np-bar-track--seekable:hover {
+  height: 7px;
+  background: rgba(255,255,255,0.22);
+}
+.np-bar-track--seekable:hover .np-bar-fill {
+  background: var(--accent-bright, #1ed760);
 }
 
 .np-bar-fill {
@@ -225,10 +238,49 @@
 /* Controls row */
 .np-controls {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+/* ── Playback row (prev / status / next) ── */
+.np-playback-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* Skip buttons */
+.np-skip-btn {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  width: 38px;
+  height: 38px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  width: 100%;
+  color: var(--text-2);
+  transition: background var(--transition), color var(--transition), transform var(--transition), border-color var(--transition);
+  flex-shrink: 0;
+}
+.np-skip-btn svg { width: 17px; height: 17px; }
+.np-skip-btn:hover {
+  background: rgba(255,255,255,0.14);
+  color: var(--text-1);
+  border-color: rgba(255,255,255,0.18);
+  transform: scale(1.08);
+}
+.np-skip-btn:active { transform: scale(0.93); }
+
+/* ── Pill toggles row (Lyrics / Up Next / Match) ── */
+.np-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 /* EQ animation tag */
@@ -452,6 +504,99 @@
   flex-direction: column;
 }
 
+/* ── Queue panel ("Up Next") ──────────────────────────────── */
+.np-queue {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.np-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.np-queue-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 10px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+.np-queue-list::-webkit-scrollbar { width: 4px; }
+.np-queue-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+
+.np-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  transition: background var(--transition);
+}
+.np-queue-item:hover { background: rgba(255,255,255,0.07); }
+
+.np-queue-num {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  min-width: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.np-queue-art {
+  width: 44px;
+  height: 44px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.np-queue-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.np-queue-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-queue-artist {
+  font-size: 0.76rem;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-queue-dur {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
 /* ── Idle / error / nothing-playing screens ──────────────── */
 .np-center-screen {
   width: 100%;
@@ -634,10 +779,25 @@
     min-height: 320px;
     flex: 0 0 320px;
   }
+  /* Larger tap targets on touch screens */
+  .np-skip-btn {
+    width: 44px;
+    height: 44px;
+  }
+  /* Slightly taller seek bar for easier touch */
+  .np-bar-track--seekable { height: 5px; }
+  /* Queue panel on mobile */
+  .np-queue-item { padding: 10px 12px; }
+  .np-queue-art { width: 40px; height: 40px; }
 }
 
 @media (max-width: 480px) {
   .np-header { padding: 14px 18px; }
   .np-art { width: 180px; height: 180px; }
   .np-track { font-size: 1.3rem; }
+  /* Compact header on small phones — hide provider toggle labels */
+  .np-provider-btn { padding: 4px 8px; font-size: 0.68rem; }
+  /* Slightly smaller skip icons on tiny screens */
+  .np-skip-btn { width: 42px; height: 42px; }
+  .np-skip-btn svg { width: 15px; height: 15px; }
 }
