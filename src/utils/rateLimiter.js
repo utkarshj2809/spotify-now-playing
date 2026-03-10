@@ -7,14 +7,25 @@
 export class RateLimiter {
   /**
    * @param {number} requestsPerSecond  Maximum calls per second
+   * @param {{ onPause?: (pauseUntilMs: number) => void, onResume?: () => void }} [callbacks]
    */
-  constructor(requestsPerSecond) {
+  constructor(requestsPerSecond, callbacks = {}) {
     this._rps      = requestsPerSecond;
     this._interval = 1000 / requestsPerSecond; // ms between slots
     this._queue    = [];          // Array of { fn, resolve, reject }
     this._running  = false;
     this._paused   = false;
     this._pauseUntil = 0;
+    this._onPause  = callbacks.onPause  || null;
+    this._onResume = callbacks.onResume || null;
+  }
+
+  /**
+   * Update pause/resume callbacks after construction.
+   */
+  setCallbacks({ onPause, onResume } = {}) {
+    this._onPause  = onPause  || null;
+    this._onResume = onResume || null;
   }
 
   /**
@@ -71,8 +82,10 @@ export class RateLimiter {
       const pauseMs = (isNaN(retryAfter) ? 5 : retryAfter) * 1000;
       this._paused     = true;
       this._pauseUntil = Date.now() + pauseMs;
+      if (this._onPause) this._onPause(this._pauseUntil);
       await this._sleep(pauseMs);
       this._paused = false;
+      if (this._onResume) this._onResume();
       // Retry once
       return fn();
     }

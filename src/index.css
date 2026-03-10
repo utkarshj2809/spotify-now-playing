@@ -42,6 +42,50 @@ button {
   cursor: pointer;
 }
 
+/* ── Screen reader only ──────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Theme variants ──────────────────────────────────────────── */
+[data-theme="amoled"] {
+  --bg:            #000000;
+  --accent:        #1db954;
+  --accent-bright: #1ed760;
+}
+
+[data-theme="sepia"] {
+  --bg:            #1a1208;
+  --accent:        #d4a853;
+  --accent-bright: #f0c060;
+  --text-1:        #f5e6c8;
+  --text-2:        rgba(245,230,200,0.55);
+  --text-3:        rgba(245,230,200,0.28);
+  --border:        rgba(245,230,200,0.09);
+  --surface:       rgba(245,230,200,0.06);
+  --surface-high:  rgba(245,230,200,0.10);
+}
+
+[data-theme="hc"] {
+  --bg:            #000000;
+  --accent:        #00ff88;
+  --accent-bright: #00ffaa;
+  --text-1:        #ffffff;
+  --text-2:        rgba(255,255,255,0.75);
+  --text-3:        rgba(255,255,255,0.45);
+  --border:        rgba(255,255,255,0.2);
+  --surface:       rgba(255,255,255,0.08);
+  --surface-high:  rgba(255,255,255,0.14);
+}
+
 /* ── Loading screen ──────────────────────────────────────────── */
 .app-loading {
   height: 100%;

@@ -7,6 +7,7 @@ const SPOTIFY_SCOPES = [
   'user-library-read',
   'user-library-modify',
   'user-read-recently-played',
+  'streaming',
 ].join(' ');
 
 const REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -102,10 +103,28 @@ export async function exchangeCodeForToken(code) {
   localStorage.setItem('spotify_expires_at', String(expiresAt));
   localStorage.removeItem('spotify_code_verifier');
 
+  // Schedule proactive refresh
+  _scheduleProactiveRefresh(expiresAt);
+
   return data.access_token;
 }
 
-export async function refreshAccessToken() {
+// Refresh mutex: prevents multiple concurrent refresh requests
+let _refreshInFlight = null;
+let _proactiveRefreshTimer = null;
+
+function _scheduleProactiveRefresh(expiresAt) {
+  if (_proactiveRefreshTimer) clearTimeout(_proactiveRefreshTimer);
+  const delay = expiresAt - Date.now() - 60_000;
+  if (delay > 0) {
+    _proactiveRefreshTimer = setTimeout(() => {
+      _proactiveRefreshTimer = null;
+      refreshAccessToken().catch(() => {});
+    }, delay);
+  }
+}
+
+async function _doRefresh() {
   const refreshToken = localStorage.getItem('spotify_refresh_token');
   const clientId     = getClientId();
 
@@ -136,7 +155,16 @@ export async function refreshAccessToken() {
     localStorage.setItem('spotify_refresh_token', data.refresh_token);
   }
 
+  // Schedule next proactive refresh
+  _scheduleProactiveRefresh(expiresAt);
+
   return data.access_token;
+}
+
+export async function refreshAccessToken() {
+  if (_refreshInFlight) return _refreshInFlight;
+  _refreshInFlight = _doRefresh().finally(() => { _refreshInFlight = null; });
+  return _refreshInFlight;
 }
 
 export async function getValidToken() {
@@ -359,4 +387,17 @@ export async function getRecentlyPlayed() {
     if (!res.ok) return null;
     return res.json();
   });
+}
+
+export async function playTrack(uri, deviceId) {
+  const token = await getValidToken();
+  if (!token) return;
+  const body = { uris: [uri] };
+  await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/player/play${deviceId ? `?device_id=${deviceId}` : ''}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  );
 }

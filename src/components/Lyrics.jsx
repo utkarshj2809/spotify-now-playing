@@ -2,11 +2,13 @@ import { useRef, useEffect } from 'react';
 import { getActiveWordIndex } from '../utils/applemusic';
 import './Lyrics.css';
 
-export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSeek }) {
-  const containerRef = useRef(null);
-  const activeRef    = useRef(null);
+export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSeek, trackId }) {
+  const containerRef  = useRef(null);
+  const activeRef     = useRef(null);
+  const prevTrackIdRef = useRef(null);
 
   // Smoothly scroll the active line to the vertical center
+  // Use instant scroll on track change for correct initial position
   useEffect(() => {
     if (!activeRef.current || !containerRef.current) return;
 
@@ -17,11 +19,14 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSe
     const elTop      = el.offsetTop;
     const elH        = el.clientHeight;
 
+    const isNewTrack = prevTrackIdRef.current !== trackId;
+    prevTrackIdRef.current = trackId;
+
     container.scrollTo({
       top:      elTop - containerH / 2 + elH / 2,
-      behavior: 'smooth',
+      behavior: isNewTrack ? 'instant' : 'smooth',
     });
-  }, [activeIndex]);
+  }, [activeIndex, trackId]);
 
   if (!lines || lines.length === 0) {
     return (
@@ -36,7 +41,7 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSe
 
   return (
     <div className="lrc-wrapper">
-      <ul className="lrc-list" ref={containerRef}>
+      <ul className="lrc-list" ref={containerRef} role="list">
         {lines.map((line, i) => {
           const isActive    = i === activeIndex;
           const isPast      = isSynced && i < activeIndex;
@@ -50,6 +55,8 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSe
             <li
               key={i}
               ref={isActive ? activeRef : null}
+              role="listitem"
+              aria-current={isActive ? true : undefined}
               className={[
                 'lrc-line',
                 isActive

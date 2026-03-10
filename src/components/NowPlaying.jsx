@@ -1,19 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentlyPlaying, logout, skipToNext, skipToPrevious, seekToPosition, getQueue, togglePlayback, toggleShuffle, setRepeatMode, setVolume, checkTrackSaved, saveTrack, removeTrack, getRecentlyPlayed } from '../utils/spotify';
-import { fetchLyrics, getActiveLyricIndex } from '../utils/lrclib';
 import {
-  searchAppleMusic,
-  fetchAppleMusicLyrics,
-  findBestMatch,
+  logout,
+  skipToNext,
+  skipToPrevious,
+  seekToPosition,
+  togglePlayback,
+  setRepeatMode,
+  playTrack,
+} from '../utils/spotify';
+import { getActiveLyricIndex } from '../utils/lrclib';
+import {
   resolveArtworkUrl,
   decodeHtmlEntities,
 } from '../utils/applemusic';
+import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import { useLyrics } from '../hooks/useLyrics';
 import Lyrics from './Lyrics';
+import PlayerControls from './PlayerControls';
+import QueuePanel from './QueuePanel';
+import ShortcutHelp from './ShortcutHelp';
+import ThemePicker from './ThemePicker';
 import { useToast } from './Toast';
 import './NowPlaying.css';
-
-// How often (ms) we poll Spotify for track state
-const POLL_MS = 3_000;
 
 function fmt(ms) {
   const s = Math.floor(ms / 1000);
@@ -28,256 +36,179 @@ function getGreeting() {
   return 'Good Night';
 }
 
-/** Extract the dominant (darkened) RGB from an 8×8 canvas sample of the art. */
-function sampleColor(imgEl) {
+/** k-means color quantization for vibrant background color */
+function extractVibrantColor(imgEl) {
   try {
-    const size = 8;
+    const size = 32;
     const c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
     ctx.drawImage(imgEl, 0, 0, size, size);
     const { data } = ctx.getImageData(0, 0, size, size);
-    const pixels = size * size;
-    let rSum = 0, gSum = 0, bSum = 0;
-    for (let i = 0; i < pixels * 4; i += 4) {
-      rSum += data[i];
-      gSum += data[i + 1];
-      bSum += data[i + 2];
+
+    const pixels = [];
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max === 0 ? 0 : (max - min) / max;
+      if (saturation > 0.15 && max > 30 && max < 240) {
+        pixels.push([r, g, b]);
+      }
     }
-    const f = 0.3;
-    const r = Math.round((rSum / pixels) * f);
-    const g = Math.round((gSum / pixels) * f);
-    const b = Math.round((bSum / pixels) * f);
-    return `rgb(${r},${g},${b})`;
+
+    if (pixels.length === 0) return null;
+
+    const k = 3;
+    let centroids = pixels.slice(0, k).map((p) => [...p]);
+
+    for (let iter = 0; iter < 10; iter++) {
+      const clusters = Array.from({ length: k }, () => []);
+      for (const pixel of pixels) {
+        let minDist = Infinity, best = 0;
+        for (let ci = 0; ci < k; ci++) {
+          const d = Math.hypot(
+            pixel[0] - centroids[ci][0],
+            pixel[1] - centroids[ci][1],
+            pixel[2] - centroids[ci][2],
+          );
+          if (d < minDist) { minDist = d; best = ci; }
+        }
+        clusters[best].push(pixel);
+      }
+      for (let ci = 0; ci < k; ci++) {
+        if (clusters[ci].length === 0) continue;
+        centroids[ci] = [
+          clusters[ci].reduce((s, p) => s + p[0], 0) / clusters[ci].length,
+          clusters[ci].reduce((s, p) => s + p[1], 0) / clusters[ci].length,
+          clusters[ci].reduce((s, p) => s + p[2], 0) / clusters[ci].length,
+        ];
+      }
+    }
+
+    let best = centroids[0];
+    let bestSat = 0;
+    for (const cent of centroids) {
+      const max = Math.max(...cent), min = Math.min(...cent);
+      const sat = max === 0 ? 0 : (max - min) / max;
+      if (sat > bestSat) { bestSat = sat; best = cent; }
+    }
+
+    const f = 0.25;
+    return `rgb(${Math.round(best[0] * f)},${Math.round(best[1] * f)},${Math.round(best[2] * f)})`;
   } catch {
     return null;
   }
 }
 
 export default function NowPlaying({ onLogout }) {
-  // ── Track state ───────────────────────────────────────────────
-  const [track, setTrack]         = useState(null);   // Spotify track object
-  const [playing, setPlaying]     = useState(false);
-  const [progress, setProgress]   = useState(0);      // ms
-  const [error, setError]         = useState('');
-
-  // ── Lyrics state ─────────────────────────────────────────────
-  const [lyrics, setLyrics]       = useState(null);   // parsed line array or null
-  const [synced, setSynced]       = useState(false);
-  const [activeIdx, setActiveIdx] = useState(-1);
-
-  // ── Provider state ────────────────────────────────────────────
-  const [provider, setProvider]   = useState(
-    () => localStorage.getItem('lyrics-provider') || 'apple-music',
+  // -- UI state
+  const [accentColor,      setAccentColor]      = useState('rgb(18,18,18)');
+  const [projector,        setProjector]        = useState(false);
+  const [lyricsOpen,       setLyricsOpen]       = useState(true);
+  const [queueOpen,        setQueueOpen]        = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [themePreset,      setThemePreset]      = useState(
+    () => localStorage.getItem('np-theme') || 'dark',
   );
-  // Apple Music search results & picker
-  const [amResults, setAmResults]       = useState([]);
-  const [amPickerOpen, setAmPickerOpen] = useState(false);
-  const [amSelectedId, setAmSelectedId] = useState(null);
 
-  // ── UI state ─────────────────────────────────────────────────
-  const [accentColor, setAccentColor] = useState('rgb(18,18,18)');
-  const [projector, setProjector]     = useState(false);
-  const [lyricsOpen, setLyricsOpen]   = useState(true);
-  const [queue, setQueue]             = useState([]);
-  const [queueOpen, setQueueOpen]     = useState(false);
-  const [shuffle, setShuffle]         = useState(false);
-  const [repeatState, setRepeatState] = useState('off');   // 'off' | 'context' | 'track'
-  const [volume, setVolumeState]      = useState(100);
-  const [liked, setLiked]             = useState(false);
-  const [recentlyPlayed, setRecentlyPlayed] = useState([]);
+  // Album art crossfade: two bg layers
+  const [bgA,      setBgA]      = useState('');
+  const [bgB,      setBgB]      = useState('');
+  const [activeBg, setActiveBg] = useState('a');
+  const activeBgRef = useRef('a');
 
-  // ── Toast ─────────────────────────────────────────────────────
+  // Progress bar seeking state
+  const [seeking, setSeeking] = useState(false);
+
   const { showToast, ToastContainer } = useToast();
+  const hiddenImgRef = useRef(null);
 
-  // ── Internal refs (survive re-renders without causing them) ──
-  const trackIdRef    = useRef(null);
-  const progressRef   = useRef(0);
-  const playingRef    = useRef(false);
-  const shuffleRef    = useRef(false);
-  const repeatRef     = useRef('off');
-  const lyricsRef     = useRef(null);   // mirror of lyrics state for the ticker
-  const tickerRef     = useRef(null);
-  const hiddenImgRef  = useRef(null);
-  const providerRef   = useRef(provider); // always holds latest provider value
-  const volumeDebRef  = useRef(null);     // debounce timer for volume
-
-  // Keep providerRef in sync with provider state
-  useEffect(() => {
-    providerRef.current = provider;
-    localStorage.setItem('lyrics-provider', provider);
-  }, [provider]);
-
-  // ── Color extraction ─────────────────────────────────────────
+  // -- Color extraction
   const extractColor = useCallback((url) => {
     if (!url) return;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const color = sampleColor(img);
+      const color = extractVibrantColor(img);
       if (color) setAccentColor(color);
+      // Crossfade to new background
+      if (activeBgRef.current === 'a') {
+        setBgB(url);
+        setActiveBg('b');
+        activeBgRef.current = 'b';
+      } else {
+        setBgA(url);
+        setActiveBg('a');
+        activeBgRef.current = 'a';
+      }
     };
     img.src = url;
   }, []);
 
-  // ── Shared helper: commit a fetched lyrics result to state ───
-  const commitLyrics = useCallback((result) => {
-    const isSynced = Array.isArray(result) && result.every((l) => l.time !== null);
-    setSynced(isSynced);
-    setLyrics(result);
-    lyricsRef.current = result;
-  }, []);
+  // -- Lyrics hook
+  const {
+    lyrics,
+    synced,
+    activeIdx,
+    provider,
+    amResults,
+    amPickerOpen,
+    amSelectedId,
+    lyricsRef,
+    setActiveIdx,
+    fetchLyricsForTrack,
+    handleProviderChangeAndFetch,
+    handleAmResultSelect,
+    setAmPickerOpen,
+  } = useLyrics({
+    progressRef: null,
+    setProgress: null,
+    seekToPositionFn: seekToPosition,
+  });
 
-  // ── Fetch lyrics for a track (uses current provider via ref) ─
-  const fetchLyricsForTrack = useCallback(async (item) => {
-    const primaryArtist = item.artists?.[0]?.name ?? '';
-    const albumName     = item.album?.name ?? '';
-    const durationSec   = item.duration_ms != null ? item.duration_ms / 1000 : undefined;
-
-    if (providerRef.current === 'apple-music') {
-      // Search Apple Music, using Spotify track ID as cache key
-      const query   = `${primaryArtist} ${item.name}`;
-      const results = await searchAppleMusic(query, item.id);
-      setAmResults(results);
-
-      const best = findBestMatch(results, { artist: primaryArtist, title: item.name });
-      if (best) {
-        setAmSelectedId(best.id);
-        commitLyrics(await fetchAppleMusicLyrics(best.id));
-      } else {
-        // No match found — open picker so the user can choose
-        setAmPickerOpen(true);
-        setLyrics(null);
-        lyricsRef.current = null;
-      }
-    } else {
-      // LRCLib — pass Spotify track ID as cache key
-      commitLyrics(await fetchLyrics({
-        title:    item.name,
-        artist:   primaryArtist,
-        album:    albumName,
-        duration: durationSec,
-        trackId:  item.id,
-      }));
-    }
-  }, [commitLyrics]);
-
-  // ── Core poller ───────────────────────────────────────────────
-  const poll = useCallback(async () => {
-    try {
-      const [data, queueData] = await Promise.all([
-        getCurrentlyPlaying(),
-        getQueue(),
-      ]);
-
-      if (!data || !data.item) {
-        setTrack(null);
-        setPlaying(false);
-        playingRef.current = false;
-        // Load recently played when idle
-        try {
-          const recent = await getRecentlyPlayed();
-          if (recent?.items) {
-            setRecentlyPlayed(recent.items.slice(0, 5));
-          }
-        } catch {
-          // ignore
-        }
-        return;
-      }
-
-      const item      = data.item;
-      const isPlaying = data.is_playing;
-
-      // Sync progress & playing state every poll
-      progressRef.current = data.progress_ms;
-      playingRef.current  = isPlaying;
-      setProgress(data.progress_ms);
-      setPlaying(isPlaying);
-      const shuffleState = data.shuffle_state ?? false;
-      shuffleRef.current = shuffleState;
-      setShuffle(shuffleState);
-
-      // Sync repeat state
-      if (data.repeat_state) {
-        repeatRef.current = data.repeat_state;
-        setRepeatState(data.repeat_state);
-      }
-
-      // Sync volume from active device
-      if (data.device?.volume_percent != null) {
-        setVolumeState(data.device.volume_percent);
-      }
-
-      // Update queue on every poll
-      if (queueData?.queue) {
-        setQueue(queueData.queue.filter((t) => t.type === 'track').slice(0, 15));
-      }
-
-      // Only fetch lyrics / update track when the song actually changes
-      if (item.id === trackIdRef.current) return;
-      trackIdRef.current = item.id;
-
-      setTrack(item);
-      setActiveIdx(-1);
-      setLyrics(null);
-      setAmResults([]);
-      setAmSelectedId(null);
-      setAmPickerOpen(false);
-      lyricsRef.current = null;
-
-      // Check if track is liked
-      checkTrackSaved(item.id).then(setLiked).catch(() => {});
-
-      // Extract album-art accent color
-      extractColor(item.album?.images?.[0]?.url);
-
-      await fetchLyricsForTrack(item);
-    } catch (err) {
-      console.error('Spotify poll error:', err);
-      setError('Could not reach Spotify. Check your connection and try again.');
-    }
+  // -- Track change handler
+  const onTrackChange = useCallback((item) => {
+    extractColor(item.album?.images?.[0]?.url);
+    fetchLyricsForTrack(item);
   }, [extractColor, fetchLyricsForTrack]);
 
-  // ── Smooth progress ticker (runs every 100 ms for word-level accuracy) ──
-  const startTicker = useCallback(() => {
-    if (tickerRef.current) clearInterval(tickerRef.current);
-    tickerRef.current = setInterval(() => {
-      if (!playingRef.current) return;
+  // -- Player hook
+  const {
+    track,
+    playing,
+    progress,
+    progressRef,
+    playingRef,
+    repeatState,
+    repeatRef,
+    queue,
+    recentlyPlayed,
+    error,
+    setError,
+    isRateLimited,
+    seekBlockUntilRef,
+    skipCooldownRef,
+    poll,
+  } = useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx });
 
-      progressRef.current += 100;
-      const ms = progressRef.current;
-      setProgress(ms);
-
-      const lines = lyricsRef.current;
-      if (lines) {
-        setActiveIdx(getActiveLyricIndex(lines, ms / 1000));
-      }
-    }, 100);
-  }, []);
-
-  // ── Mount / unmount ───────────────────────────────────────────
-  useEffect(() => {
-    // Defer initial poll so it runs outside the synchronous effect body,
-    // satisfying the react-hooks/set-state-in-effect lint rule.
-    const initTimer = setTimeout(poll, 0);
-    startTicker();
-    const pollTimer = setInterval(poll, POLL_MS);
-    return () => {
-      clearTimeout(initTimer);
-      clearInterval(pollTimer);
-      clearInterval(tickerRef.current);
-    };
-  }, [poll, startTicker]);
-
-  // ── Sync active lyric when lyrics first load ──────────────────
-  useEffect(() => {
-    if (lyrics) {
-      setActiveIdx(getActiveLyricIndex(lyrics, progressRef.current / 1000));
+  // Wire up lyrics seek with the real progressRef
+  function handleLyricSeek(posMs) {
+    progressRef.current = posMs;
+    seekBlockUntilRef.current = Date.now() + 2000;
+    if (lyricsRef.current) {
+      setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
     }
-  }, [lyrics]);
+    seekToPosition(posMs);
+  }
 
-  // ── Update browser tab title with the current track ──────────
+  // -- Apply theme
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', themePreset);
+    localStorage.setItem('np-theme', themePreset);
+  }, [themePreset]);
+
+  // -- Update browser tab title
   useEffect(() => {
     if (track) {
       const artist = track.artists?.map((a) => a.name).join(', ') ?? '';
@@ -287,17 +218,22 @@ export default function NowPlaying({ onLogout }) {
     }
   }, [track]);
 
-  // ── Keyboard shortcuts ────────────────────────────────────────
+  // -- Sync active lyric when lyrics load
+  useEffect(() => {
+    if (lyrics) {
+      setActiveIdx(getActiveLyricIndex(lyrics, progressRef.current / 1000));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lyrics]);
+
+  // -- Keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e) {
-      // Ignore when typing in an input/textarea
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
       if (e.code === 'Space') {
         e.preventDefault();
         const wasPlaying = playingRef.current;
         playingRef.current = !wasPlaying;
-        setPlaying(!wasPlaying);
         togglePlayback(wasPlaying).then(() => setTimeout(poll, 800)).catch(() => {});
       } else if (e.code === 'ArrowRight' && e.shiftKey) {
         e.preventDefault();
@@ -307,95 +243,54 @@ export default function NowPlaying({ onLogout }) {
         skipToPrevious().then(() => setTimeout(poll, 800)).catch(() => {});
       } else if (e.key === 'l' || e.key === 'L') {
         setLyricsOpen((v) => !v);
-      } else if (e.key === 's' || e.key === 'S') {
-        const newShuffle = !shuffleRef.current;
-        shuffleRef.current = newShuffle;
-        setShuffle(newShuffle);
-        toggleShuffle(newShuffle).catch(() => {});
       } else if (e.key === 'r' || e.key === 'R') {
         const cycle = { off: 'context', context: 'track', track: 'off' };
         const newRepeat = cycle[repeatRef.current] ?? 'off';
         repeatRef.current = newRepeat;
-        setRepeatState(newRepeat);
         setRepeatMode(newRepeat).catch(() => {});
+      } else if (e.key === '?') {
+        setShortcutHelpOpen((v) => !v);
       }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  // Stable: only reads from refs (playingRef, shuffleRef, repeatRef) and stable setters.
-  // poll is excluded intentionally — reading it via closure is safe since it's derived from refs.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Handlers ─────────────────────────────────────────────────
+  // -- Handlers
   function handleLogout() { logout(); onLogout(); }
-
   function retry() { setError(''); poll(); }
 
   async function handleSkipNext() {
+    if (skipCooldownRef.current) return;
+    skipCooldownRef.current = true;
+    setTimeout(() => { skipCooldownRef.current = false; }, 1000);
     await skipToNext();
     setTimeout(poll, 800);
   }
 
   async function handleSkipPrev() {
+    if (skipCooldownRef.current) return;
+    skipCooldownRef.current = true;
+    setTimeout(() => { skipCooldownRef.current = false; }, 1000);
     await skipToPrevious();
     setTimeout(poll, 800);
   }
 
   async function handleTogglePlayback() {
     const wasPlaying = playingRef.current;
-    // Optimistic update
     playingRef.current = !wasPlaying;
-    setPlaying(!wasPlaying);
     await togglePlayback(wasPlaying);
     setTimeout(poll, 800);
-  }
-
-  async function handleToggleShuffle() {
-    const newState = !shuffleRef.current;
-    shuffleRef.current = newState;
-    setShuffle(newState);
-    await toggleShuffle(newState);
-    showToast(newState ? '🔀 Shuffle on' : '🔀 Shuffle off');
   }
 
   async function handleToggleRepeat() {
     const cycle = { off: 'context', context: 'track', track: 'off' };
     const newState = cycle[repeatRef.current] ?? 'off';
     repeatRef.current = newState;
-    setRepeatState(newState);
     await setRepeatMode(newState);
-    const labels = { off: '🔁 Repeat off', context: '🔁 Repeat all', track: '🔂 Repeat one' };
-    showToast(labels[newState] ?? '🔁 Repeat');
-  }
-
-  async function handleLike() {
-    const newLiked = !liked;
-    setLiked(newLiked);
-    if (track?.id) {
-      if (newLiked) {
-        await saveTrack(track.id);
-        showToast('❤️ Liked');
-      } else {
-        await removeTrack(track.id);
-        showToast('🖤 Removed from liked');
-      }
-    }
-  }
-
-  function handleVolumeChange(e) {
-    const val = Number(e.target.value);
-    setVolumeState(val);
-    clearTimeout(volumeDebRef.current);
-    volumeDebRef.current = setTimeout(async () => {
-      try {
-        await setVolume(val);
-        if (val === 0) showToast('🔇 Muted');
-      } catch {
-        // Revert UI on failure
-        setVolumeState((prev) => prev);
-      }
-    }, 300);
+    const labels = { off: '\ud83d\udd01 Repeat off', context: '\ud83d\udd01 Repeat all', track: '\ud83d\udd02 Repeat one' };
+    showToast(labels[newState] ?? '\ud83d\udd01 Repeat');
   }
 
   function handleSeek(e) {
@@ -403,58 +298,20 @@ export default function NowPlaying({ onLogout }) {
     const rect = e.currentTarget.getBoundingClientRect();
     const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const posMs = fraction * track.duration_ms;
-    // Optimistic update: move the UI immediately for instant feedback.
-    // The next poll (≤3 s) will correct the position if the API call fails.
     progressRef.current = posMs;
-    setProgress(posMs);
-    if (lyricsRef.current) {
-      setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
-    }
+    seekBlockUntilRef.current = Date.now() + 2000;
+    setSeeking(true);
+    setTimeout(() => setSeeking(false), 150);
     seekToPosition(posMs);
   }
 
-  function handleLyricSeek(posMs) {
-    // Optimistic update: move the UI immediately for instant feedback.
-    // The next poll (≤3 s) will correct the position if the API call fails.
-    progressRef.current = posMs;
-    setProgress(posMs);
-    if (lyricsRef.current) {
-      setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
-    }
-    seekToPosition(posMs);
+  async function handlePlayFromQueue(t) {
+    await playTrack(t.uri);
+    showToast(`Playing ${t.name}`);
+    setTimeout(poll, 800);
   }
 
-  // Switch provider and re-fetch lyrics for the current track
-  async function handleProviderChange(next) {
-    setProvider(next);
-    providerRef.current = next;
-    localStorage.setItem('lyrics-provider', next);
-
-    if (!track) return;
-    setLyrics(null);
-    setAmResults([]);
-    setAmSelectedId(null);
-    setAmPickerOpen(false);
-    lyricsRef.current = null;
-    setActiveIdx(-1);
-    await fetchLyricsForTrack(track);
-  }
-
-  // User picked a specific Apple Music search result
-  async function handleAmResultSelect(result) {
-    setAmSelectedId(result.id);
-    setAmPickerOpen(false);
-    setLyrics(null);
-    lyricsRef.current = null;
-    setActiveIdx(-1);
-    const fetched = await fetchAppleMusicLyrics(result.id);
-    commitLyrics(fetched);
-    if (fetched) {
-      setActiveIdx(getActiveLyricIndex(fetched, progressRef.current / 1000));
-    }
-  }
-
-  // ── Render: error ─────────────────────────────────────────────
+  // -- Render: error
   if (error) {
     return (
       <div className="np-center-screen">
@@ -465,7 +322,7 @@ export default function NowPlaying({ onLogout }) {
     );
   }
 
-  // ── Render: nothing playing ───────────────────────────────────
+  // -- Render: nothing playing
   if (!track) {
     return (
       <div className="np-center-screen">
@@ -510,27 +367,23 @@ export default function NowPlaying({ onLogout }) {
   const queuePanelOpen  = queueOpen && queue.length > 0;
   const panelOpen = lyricsPanelOpen || queuePanelOpen;
 
-  // ── Render: projector mode ────────────────────────────────────
+  // -- Render: projector mode
   if (projector) {
     return (
       <div className="proj-root" style={{ '--art-bg': art ? `url(${art})` : 'none' }}>
         <div className="proj-blur" />
         <div className="proj-overlay" />
-
         <button className="proj-exit" onClick={() => setProjector(false)} title="Exit projector mode">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M8 21H5a2 2 0 0 0-2-2v-3M21 16v3a2 2 0 0 0-2 2h-3" />
           </svg>
         </button>
-
         <img className="proj-art" src={art} alt={track.name} />
         <h1 className="proj-title">{track.name}</h1>
         <p className="proj-artist">{artist}</p>
-
         <div className="proj-progress">
           <div className="proj-fill" style={{ width: `${pct}%` }} />
         </div>
-
         {playing && (
           <div className="proj-bars" aria-label="Playing">
             <span /><span /><span /><span />
@@ -540,12 +393,24 @@ export default function NowPlaying({ onLogout }) {
     );
   }
 
-  // ── Render: main view ─────────────────────────────────────────
+  // -- Render: main view
   return (
     <div className="np-root" style={{ '--accent-bg': accentColor }}>
-      {/* Blurred album-art background */}
-      {art && <div className="np-bg-art" style={{ backgroundImage: `url(${art})` }} />}
+      {/* Blurred album-art background (two layers for crossfade) */}
+      <div
+        className={`np-bg-layer ${activeBg === 'a' ? 'np-bg-layer--visible' : 'np-bg-layer--hidden'}`}
+        style={{ backgroundImage: bgA ? `url(${bgA})` : 'none' }}
+      />
+      <div
+        className={`np-bg-layer ${activeBg === 'b' ? 'np-bg-layer--visible' : 'np-bg-layer--hidden'}`}
+        style={{ backgroundImage: bgB ? `url(${bgB})` : 'none' }}
+      />
       <div className="np-bg-overlay" />
+
+      {/* Accessibility: announce track changes to screen readers */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {track ? `Now playing: ${track.name} by ${artist}` : ''}
+      </div>
 
       {/* Header bar */}
       <header className="np-header">
@@ -559,23 +424,44 @@ export default function NowPlaying({ onLogout }) {
         <span className="np-header-greeting">{getGreeting()}</span>
 
         <div className="np-header-actions">
+          {isRateLimited && (
+            <span className="np-rate-limit-badge" title="Spotify API rate limited — retrying…">
+              ⏱ Rate limited
+            </span>
+          )}
+
           {/* Provider selector */}
           <div className="np-provider-toggle">
             <button
               className={`np-provider-btn ${provider === 'lrclib' ? 'np-provider-btn--active' : ''}`}
-              onClick={() => handleProviderChange('lrclib')}
+              onClick={() => handleProviderChangeAndFetch('lrclib', track)}
               title="Use LRCLib lyrics"
             >
               LRCLib
             </button>
             <button
               className={`np-provider-btn ${provider === 'apple-music' ? 'np-provider-btn--active' : ''}`}
-              onClick={() => handleProviderChange('apple-music')}
+              onClick={() => handleProviderChangeAndFetch('apple-music', track)}
               title="Use Apple Music lyrics"
             >
               Apple Music
             </button>
           </div>
+
+          <ThemePicker currentTheme={themePreset} onChange={setThemePreset} />
+
+          <button
+            className="np-icon-btn"
+            onClick={() => setShortcutHelpOpen(true)}
+            title="Keyboard shortcuts (?)"
+            aria-label="Show keyboard shortcuts"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </button>
 
           <button
             className="np-icon-btn"
@@ -596,11 +482,12 @@ export default function NowPlaying({ onLogout }) {
 
       {/* Main content */}
       <main className={`np-main ${panelOpen ? 'np-main--split' : ''}`}>
-        {/* ── Left panel: player ─────────────────────────────── */}
+        {/* Left panel: player */}
         <section className="np-player">
           {/* Album art */}
           <div className="np-art-wrap">
             <img
+              key={track.id}
               className={`np-art ${playing ? 'np-art--playing' : ''}`}
               src={art}
               alt={`${track.name} album art`}
@@ -610,7 +497,7 @@ export default function NowPlaying({ onLogout }) {
           </div>
 
           {/* Track info */}
-          <div className="np-info">
+          <div key={track.id} className="np-info">
             <h2 className="np-track">
               {track.name}
               {track.explicit && <span className="np-explicit-badge">E</span>}
@@ -625,128 +512,51 @@ export default function NowPlaying({ onLogout }) {
             <div
               className="np-bar-track np-bar-track--seekable"
               role="slider"
+              tabIndex={0}
               aria-valuenow={Math.round(pct)}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-label="Track progress"
+              aria-valuetext={`${fmt(progress)} of ${fmt(track.duration_ms)}`}
               onClick={handleSeek}
+              onKeyDown={(e) => {
+                if (!track?.duration_ms) return;
+                const step = 5000;
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  const newPos = Math.min(progressRef.current + step, track.duration_ms);
+                  progressRef.current = newPos;
+                  seekBlockUntilRef.current = Date.now() + 2000;
+                  seekToPosition(newPos);
+                } else if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  const newPos = Math.max(progressRef.current - step, 0);
+                  progressRef.current = newPos;
+                  seekBlockUntilRef.current = Date.now() + 2000;
+                  seekToPosition(newPos);
+                }
+              }}
             >
-              <div className="np-bar-fill" style={{ width: `${pct}%` }} />
+              <div
+                className={`np-bar-fill${seeking ? ' np-bar-fill--seeking' : ''}`}
+                style={{ width: `${pct}%` }}
+              />
             </div>
             <span className="np-time">{fmt(track.duration_ms)}</span>
           </div>
 
-          {/* Volume slider */}
-          <div className="np-volume-row">
-            <svg className="np-volume-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              {volume === 0 ? (
-                <path d="M3.63 3.63a.996.996 0 0 0 0 1.41L7.29 8.7 7 9H4c-.55 0-1 .45-1 1v4c0 .55.45 1 1 1h3l3.29 3.29c.63.63 1.71.18 1.71-.71v-4.17l4.18 4.18c-.49.37-1.02.68-1.6.91-.36.15-.58.53-.58.92 0 .72.73 1.18 1.39.91.8-.33 1.55-.77 2.22-1.31l1.34 1.34a.996.996 0 1 0 1.41-1.41L5.05 3.63c-.39-.39-1.02-.39-1.42 0zM19 12c0 .82-.15 1.61-.41 2.34l1.53 1.53c.56-1.17.88-2.48.88-3.87 0-3.83-2.4-7.11-5.78-8.4-.59-.23-1.22.23-1.22.86v.19c0 .38.25.71.61.85C17.18 6.54 19 9.06 19 12zm-8.71-6.29-.17.17L12 7.76V6.41c0-.89-1.08-1.33-1.71-.7zM16.5 12A4.5 4.5 0 0 0 14 7.97v1.79l2.48 2.48c.01-.08.02-.16.02-.24z" />
-              ) : volume < 50 ? (
-                <path d="M18.5 12A4.5 4.5 0 0 0 16 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z" />
-              ) : (
-                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-              )}
-            </svg>
-            <input
-              type="range"
-              className="np-volume-slider"
-              min="0"
-              max="100"
-              value={volume}
-              onChange={handleVolumeChange}
-              aria-label="Volume"
-            />
-          </div>
-
           {/* Playback controls */}
           <div className="np-controls">
-            {/* ── Row 1: like / shuffle / prev / play-pause / next / repeat ── */}
-            <div className="np-playback-row">
-              {/* Like button */}
-              <button
-                className={`np-like-btn${liked ? ' np-like-btn--liked' : ''}`}
-                onClick={handleLike}
-                title={liked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-                aria-label={liked ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
-                aria-pressed={liked}
-              >
-                <svg viewBox="0 0 24 24" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-                </svg>
-              </button>
+            <PlayerControls
+              playing={playing}
+              repeatState={repeatState}
+              onTogglePlayback={handleTogglePlayback}
+              onSkipNext={handleSkipNext}
+              onSkipPrev={handleSkipPrev}
+              onToggleRepeat={handleToggleRepeat}
+            />
 
-              <button
-                className={`np-skip-btn${shuffle ? ' np-skip-btn--active' : ''}`}
-                onClick={handleToggleShuffle}
-                title={shuffle ? 'Disable shuffle' : 'Enable shuffle'}
-                aria-label="Toggle shuffle"
-                aria-pressed={shuffle}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="16 3 21 3 21 8" />
-                  <line x1="4" y1="20" x2="21" y2="3" />
-                  <polyline points="21 16 21 21 16 21" />
-                  <line x1="15" y1="15" x2="21" y2="21" />
-                </svg>
-              </button>
-
-              <button
-                className="np-skip-btn"
-                onClick={handleSkipPrev}
-                title="Previous track"
-                aria-label="Previous track"
-              >
-                <svg viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M4 4h2v12H4V4zm10 0l-8 6 8 6V4z" />
-                </svg>
-              </button>
-
-              <button
-                className="np-play-btn"
-                onClick={handleTogglePlayback}
-                title={playing ? 'Pause' : 'Play'}
-                aria-label={playing ? 'Pause' : 'Play'}
-              >
-                {playing ? (
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="6" y="4" width="4" height="16" rx="1" />
-                    <rect x="14" y="4" width="4" height="16" rx="1" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                )}
-              </button>
-
-              <button
-                className="np-skip-btn"
-                onClick={handleSkipNext}
-                title="Next track"
-                aria-label="Next track"
-              >
-                <svg viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M14 4h2v12h-2V4zM4 4l8 6-8 6V4z" />
-                </svg>
-              </button>
-
-              {/* Repeat button */}
-              <button
-                className={`np-repeat-btn${repeatState !== 'off' ? ' np-repeat-active' : ''}${repeatState === 'track' ? ' np-repeat-one' : ''}`}
-                onClick={handleToggleRepeat}
-                title={repeatState === 'off' ? 'Enable repeat' : repeatState === 'context' ? 'Repeat one track' : 'Disable repeat'}
-                aria-label="Toggle repeat"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="17 1 21 5 17 9" />
-                  <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                  <polyline points="7 23 3 19 7 15" />
-                  <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                </svg>
-              </button>
-            </div>
-
-            {/* ── Row 2: pill toggles ── */}
+            {/* Pill toggles row */}
             <div className="np-pill-row">
               {hasLyrics && (
                 <button
@@ -759,7 +569,6 @@ export default function NowPlaying({ onLogout }) {
                   Lyrics
                 </button>
               )}
-
               {queue.length > 0 && (
                 <button
                   className={`np-lyrics-toggle ${queueOpen ? 'active' : ''}`}
@@ -773,8 +582,6 @@ export default function NowPlaying({ onLogout }) {
                   Up Next
                 </button>
               )}
-
-              {/* Apple Music: button to open/re-open result picker */}
               {provider === 'apple-music' && amResults.length > 0 && (
                 <button
                   className="np-lyrics-toggle"
@@ -790,19 +597,18 @@ export default function NowPlaying({ onLogout }) {
             </div>
           </div>
 
-          {/* Inline active lyric peek (when lyrics panel is collapsed) */}
+          {/* Inline active lyric peek */}
           {hasLyrics && !lyricsOpen && synced && activeIdx >= 0 && lyrics[activeIdx]?.text && (
-            <p className="np-lyric-peek" onClick={() => setLyricsOpen(true)}>
+            <p key={activeIdx} className="np-lyric-peek" onClick={() => setLyricsOpen(true)}>
               {lyrics[activeIdx].text}
             </p>
           )}
         </section>
 
-        {/* ── Center panel: lyrics or AM picker ─────────────── */}
+        {/* Center panel: lyrics or AM picker */}
         {lyricsPanelOpen && (
           <section className="np-lyrics-panel">
             {amPickerOpen ? (
-              /* Apple Music search result picker */
               <div className="am-picker">
                 <div className="am-picker-header">
                   <span>Choose the correct match</span>
@@ -820,7 +626,7 @@ export default function NowPlaying({ onLogout }) {
                       <li
                         key={r.id}
                         className={`am-picker-item ${amSelectedId === r.id ? 'am-picker-item--selected' : ''}`}
-                        onClick={() => handleAmResultSelect(r)}
+                        onClick={() => handleAmResultSelect(r, progressRef)}
                       >
                         {r.artwork && (
                           <img
@@ -846,42 +652,27 @@ export default function NowPlaying({ onLogout }) {
                 isSynced={synced}
                 progressSec={progress / 1000}
                 onSeek={handleLyricSeek}
+                trackId={track.id}
               />
             )}
           </section>
         )}
 
-        {/* ── Right panel: Up Next queue ─────────────────────── */}
+        {/* Right panel: Up Next queue */}
         {queuePanelOpen && (
-          <section className="np-queue-panel">
-            <div className="np-queue">
-              <div className="np-queue-header">
-                <span>Up Next</span>
-                <button className="am-picker-close" onClick={() => setQueueOpen(false)}>✕</button>
-              </div>
-              <ul className="np-queue-list">
-                {queue.map((t, i) => {
-                  const qArt    = t.album?.images?.[1]?.url ?? t.album?.images?.[0]?.url;
-                  const qArtist = t.artists?.map((a) => a.name).join(', ') ?? '';
-                  return (
-                    <li key={`${t.id}-${i}`} className="np-queue-item">
-                      <span className="np-queue-num">{i + 1}</span>
-                      {qArt && (
-                        <img className="np-queue-art" src={qArt} alt={t.name} />
-                      )}
-                      <div className="np-queue-meta">
-                        <span className="np-queue-title">{t.name}</span>
-                        <span className="np-queue-artist">{qArtist}</span>
-                      </div>
-                      <span className="np-queue-dur">{fmt(t.duration_ms)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </section>
+          <QueuePanel
+            queue={queue}
+            onClose={() => setQueueOpen(false)}
+            onPlayFromQueue={handlePlayFromQueue}
+          />
         )}
       </main>
+
+      {/* Shortcut help modal */}
+      {shortcutHelpOpen && (
+        <ShortcutHelp onClose={() => setShortcutHelpOpen(false)} />
+      )}
+
       <ToastContainer />
     </div>
   );

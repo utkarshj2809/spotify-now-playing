@@ -21,6 +21,8 @@ export function useToast() {
     }, durationMs);
   }, []);
 
+  // ToastContainer is a stable component that only re-renders when toasts change.
+  // It is defined inside the hook to co-locate it with its state.
   const ToastContainer = useCallback(() => (
     <div className="toast-container" aria-live="polite" aria-atomic="false">
       {toasts.map((t) => (
@@ -33,3 +35,4 @@ export function useToast() {
 
   return { showToast, ToastContainer };
 }
+
