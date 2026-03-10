@@ -1,7 +1,12 @@
+import { spotifyLimiter } from './rateLimiter';
+
 const SPOTIFY_SCOPES = [
   'user-read-currently-playing',
   'user-read-playback-state',
   'user-modify-playback-state',
+  'user-library-read',
+  'user-library-modify',
+  'user-read-recently-played',
 ].join(' ');
 
 const REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -153,18 +158,29 @@ export async function getValidToken() {
   return token;
 }
 
-export async function getCurrentlyPlaying() {
-  const token = await getValidToken();
-  if (!token) return null;
+// In-flight deduplication for getCurrentlyPlaying
+let _currentlyPlayingInFlight = null;
 
-  const response = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
-    headers: { Authorization: `Bearer ${token}` },
+export async function getCurrentlyPlaying() {
+  if (_currentlyPlayingInFlight) return _currentlyPlayingInFlight;
+
+  _currentlyPlayingInFlight = spotifyLimiter.schedule(async () => {
+    const token = await getValidToken();
+    if (!token) return null;
+
+    const response = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (response.status === 204 || response.status === 404) return null;
+    if (!response.ok) return null;
+
+    return response.json();
+  }).finally(() => {
+    _currentlyPlayingInFlight = null;
   });
 
-  if (response.status === 204 || response.status === 404) return null;
-  if (!response.ok) return null;
-
-  return response.json();
+  return _currentlyPlayingInFlight;
 }
 
 export function logout() {
@@ -188,10 +204,12 @@ export function getClientId() {
 export async function skipToNext() {
   const token = await getValidToken();
   if (!token) return;
-  const res = await fetch('https://api.spotify.com/v1/me/player/next', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await spotifyLimiter.schedule(() =>
+    fetch('https://api.spotify.com/v1/me/player/next', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
   if (!res.ok && res.status !== 204) {
     console.warn('skipToNext failed:', res.status);
   }
@@ -200,10 +218,12 @@ export async function skipToNext() {
 export async function skipToPrevious() {
   const token = await getValidToken();
   if (!token) return;
-  const res = await fetch('https://api.spotify.com/v1/me/player/previous', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await spotifyLimiter.schedule(() =>
+    fetch('https://api.spotify.com/v1/me/player/previous', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
   if (!res.ok && res.status !== 204) {
     console.warn('skipToPrevious failed:', res.status);
   }
@@ -212,23 +232,27 @@ export async function skipToPrevious() {
 export async function seekToPosition(positionMs) {
   const token = await getValidToken();
   if (!token) return;
-  const res = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${Math.round(positionMs)}`, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${Math.round(positionMs)}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
   if (!res.ok && res.status !== 204) {
     console.warn('seekToPosition failed:', res.status);
   }
 }
 
 export async function getQueue() {
-  const token = await getValidToken();
-  if (!token) return null;
-  const res = await fetch('https://api.spotify.com/v1/me/player/queue', {
-    headers: { Authorization: `Bearer ${token}` },
+  return spotifyLimiter.schedule(async () => {
+    const token = await getValidToken();
+    if (!token) return null;
+    const res = await fetch('https://api.spotify.com/v1/me/player/queue', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json(); // { currently_playing, queue: [...] }
   });
-  if (!res.ok) return null;
-  return res.json(); // { currently_playing, queue: [...] }
 }
 
 export async function togglePlayback(isCurrentlyPlaying) {
@@ -237,10 +261,12 @@ export async function togglePlayback(isCurrentlyPlaying) {
   const endpoint = isCurrentlyPlaying
     ? 'https://api.spotify.com/v1/me/player/pause'
     : 'https://api.spotify.com/v1/me/player/play';
-  const res = await fetch(endpoint, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await spotifyLimiter.schedule(() =>
+    fetch(endpoint, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
   if (!res.ok && res.status !== 204) {
     console.warn('togglePlayback failed:', res.status);
   }
@@ -249,11 +275,88 @@ export async function togglePlayback(isCurrentlyPlaying) {
 export async function toggleShuffle(state) {
   const token = await getValidToken();
   if (!token) return;
-  const res = await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=${state}`, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/player/shuffle?state=${state}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
   if (!res.ok && res.status !== 204) {
     console.warn('toggleShuffle failed:', res.status);
   }
+}
+
+export async function setRepeatMode(state) {
+  const token = await getValidToken();
+  if (!token) return;
+  const res = await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/player/repeat?state=${state}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
+  if (!res.ok && res.status !== 204) {
+    console.warn('setRepeatMode failed:', res.status);
+  }
+}
+
+export async function setVolume(volumePercent) {
+  const token = await getValidToken();
+  if (!token) return;
+  const res = await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=${Math.round(volumePercent)}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
+  if (!res.ok && res.status !== 204) {
+    console.warn('setVolume failed:', res.status);
+  }
+}
+
+export async function checkTrackSaved(id) {
+  const token = await getValidToken();
+  if (!token) return false;
+  const res = await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  );
+  if (!res.ok) return false;
+  const data = await res.json();
+  return Array.isArray(data) ? data[0] === true : false;
+}
+
+export async function saveTrack(id) {
+  const token = await getValidToken();
+  if (!token) return;
+  await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/tracks?ids=${id}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    })
+  );
+}
+
+export async function removeTrack(id) {
+  const token = await getValidToken();
+  if (!token) return;
+  await spotifyLimiter.schedule(() =>
+    fetch(`https://api.spotify.com/v1/me/tracks?ids=${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    })
+  );
+}
+
+export async function getRecentlyPlayed() {
+  return spotifyLimiter.schedule(async () => {
+    const token = await getValidToken();
+    if (!token) return null;
+    const res = await fetch('https://api.spotify.com/v1/me/player/recently-played?limit=15', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  });
 }

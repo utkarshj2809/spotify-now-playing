@@ -1,17 +1,37 @@
+import { appCache } from './cache';
+import { paxsenixLimiter } from './rateLimiter';
+
 const PAXSENIX_API = 'https://lyrics.paxsenix.org';
+
+const TTL_SEARCH_HIT  = 60 * 60 * 1000;        // 1 hour for positive search results
+const TTL_SEARCH_MISS = 30 * 60 * 1000;        // 30 minutes for empty results
+const TTL_LYRICS_HIT  = 7 * 24 * 60 * 60 * 1000; // 7 days for lyrics
+const TTL_LYRICS_MISS = 24 * 60 * 60 * 1000;   // 24 hours for not-found
 
 /**
  * Search Apple Music for songs matching the given query string.
  * Returns an array of result objects (id, songName, artistName, albumName, artwork, …)
  * or an empty array on failure.
+ *
+ * @param {string} query
+ * @param {string} [trackId]  Spotify track ID used as the cache key when provided
  */
-export async function searchAppleMusic(query) {
+export async function searchAppleMusic(query, trackId) {
+  const cacheKey = trackId ? `am-search:${trackId}` : `am-search:${query}`;
+
+  const cached = appCache.get(cacheKey);
+  if (cached !== null) return cached;
+
   try {
     const params = new URLSearchParams({ q: query });
-    const res = await fetch(`${PAXSENIX_API}/apple-music/search?${params}`);
+    const res = await paxsenixLimiter.schedule(() =>
+      fetch(`${PAXSENIX_API}/apple-music/search?${params}`)
+    );
     if (!res.ok) return [];
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    const result = Array.isArray(data) ? data : [];
+    appCache.set(cacheKey, result, result.length > 0 ? TTL_SEARCH_HIT : TTL_SEARCH_MISS);
+    return result;
   } catch {
     return [];
   }
@@ -24,12 +44,21 @@ export async function searchAppleMusic(query) {
  * or null when lyrics are unavailable.
  */
 export async function fetchAppleMusicLyrics(id) {
+  const cacheKey = `am-lyrics:${id}`;
+
+  const cached = appCache.get(cacheKey);
+  if (cached !== null) return cached;
+
   try {
     const params = new URLSearchParams({ id, ttml: 'false' });
-    const res = await fetch(`${PAXSENIX_API}/apple-music/lyrics?${params}`);
+    const res = await paxsenixLimiter.schedule(() =>
+      fetch(`${PAXSENIX_API}/apple-music/lyrics?${params}`)
+    );
     if (!res.ok) return null;
     const data = await res.json();
-    return parseAppleMusicLyrics(data);
+    const result = parseAppleMusicLyrics(data);
+    appCache.set(cacheKey, result, result ? TTL_LYRICS_HIT : TTL_LYRICS_MISS);
+    return result;
   } catch {
     return null;
   }

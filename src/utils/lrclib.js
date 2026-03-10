@@ -1,8 +1,14 @@
+import { appCache } from './cache';
+import { lrclibLimiter } from './rateLimiter';
+
 const LRCLIB_API = 'https://lrclib.net/api';
 // Recommended by lrclib.net — identifies this client in server logs
 const LRCLIB_CLIENT_HEADER = {
   'Lrclib-Client': 'spotify-now-playing v1.0 (https://github.com/utkarshj2809/spotify-now-playing)',
 };
+
+const TTL_HIT  = 7 * 24 * 60 * 60 * 1000; // 7 days for found lyrics
+const TTL_MISS = 24 * 60 * 60 * 1000;      // 24 hours for not-found
 
 /**
  * Fetch synced (or plain) lyrics from lrclib.
@@ -14,8 +20,17 @@ const LRCLIB_CLIENT_HEADER = {
  *  1. Try GET /api/get with exact metadata (track_name required; artist_name,
  *     album_name, duration included when available).
  *  2. On 404, fall back to GET /api/search using "artist title" as a query.
+ *
+ * @param {{ artist: string, title: string, album?: string, duration?: number, trackId?: string }} opts
  */
-export async function fetchLyrics({ artist, title, album, duration }) {
+export async function fetchLyrics({ artist, title, album, duration, trackId }) {
+  // Cache key: prefer Spotify track ID, fall back to artist:title
+  const cacheKey = trackId ? `lrclib:${trackId}` : `lrclib:${artist}:${title}`;
+
+  // Check cache first
+  const cached = appCache.get(cacheKey);
+  if (cached !== null) return cached;
+
   // Build params – only include fields that have a non-empty value
   const params = new URLSearchParams({ track_name: title });
   if (artist) params.set('artist_name', artist);
@@ -24,19 +39,24 @@ export async function fetchLyrics({ artist, title, album, duration }) {
   if (duration != null) params.set('duration', String(duration));
 
   try {
-    const response = await fetch(`${LRCLIB_API}/get?${params.toString()}`, {
-      headers: LRCLIB_CLIENT_HEADER,
-    });
+    const response = await lrclibLimiter.schedule(() =>
+      fetch(`${LRCLIB_API}/get?${params.toString()}`, {
+        headers: LRCLIB_CLIENT_HEADER,
+      })
+    );
 
     if (response.status === 404) {
       // Exact match not found — try the search endpoint as a fallback
-      return searchLyrics(artist, title);
+      const result = await searchLyrics(artist, title, cacheKey);
+      return result;
     }
 
     if (!response.ok) return null;
 
     const data = await response.json();
-    return extractLyricsFromResponse(data);
+    const result = extractLyricsFromResponse(data);
+    appCache.set(cacheKey, result, result ? TTL_HIT : TTL_MISS);
+    return result;
   } catch {
     return null;
   }
@@ -46,26 +66,33 @@ export async function fetchLyrics({ artist, title, album, duration }) {
  * Fallback: search for lyrics by "artist title" query string.
  * Picks the first result that has synced lyrics, else plain, else the first result.
  */
-async function searchLyrics(artist, title) {
+async function searchLyrics(artist, title, cacheKey) {
   const q = [artist, title].filter(Boolean).join(' ');
   const params = new URLSearchParams({ q });
 
   try {
-    const response = await fetch(`${LRCLIB_API}/search?${params.toString()}`, {
-      headers: LRCLIB_CLIENT_HEADER,
-    });
+    const response = await lrclibLimiter.schedule(() =>
+      fetch(`${LRCLIB_API}/search?${params.toString()}`, {
+        headers: LRCLIB_CLIENT_HEADER,
+      })
+    );
 
     if (!response.ok) return null;
 
     const results = await response.json();
-    if (!Array.isArray(results) || results.length === 0) return null;
+    if (!Array.isArray(results) || results.length === 0) {
+      if (cacheKey) appCache.set(cacheKey, null, TTL_MISS);
+      return null;
+    }
 
     const best =
       results.find((r) => r.syncedLyrics) ||
       results.find((r) => r.plainLyrics) ||
       results[0];
 
-    return extractLyricsFromResponse(best);
+    const result = extractLyricsFromResponse(best);
+    if (cacheKey) appCache.set(cacheKey, result, result ? TTL_HIT : TTL_MISS);
+    return result;
   } catch {
     return null;
   }
