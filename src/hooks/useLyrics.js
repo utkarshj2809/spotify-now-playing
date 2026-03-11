@@ -102,7 +102,8 @@ export function useLyrics({ progressRef, setProgress, seekToPositionFn }) {
     const fetched = await fetchAppleMusicLyrics(result.id);
     commitLyrics(fetched);
     if (fetched) {
-      const pr = progressRefArg ?? progressRef;
+      const pr = progressRefArg;
+      if (!pr) return;
       setActiveIdx(getActiveLyricIndex(fetched, pr.current / 1000));
     }
   }

@@ -177,7 +177,9 @@ export default function NowPlaying({ onLogout }) {
   const {
     track,
     playing,
+    setPlaying,
     progress,
+    setProgress,
     progressRef,
     playingRef,
     repeatState,
@@ -195,7 +197,8 @@ export default function NowPlaying({ onLogout }) {
   // Wire up lyrics seek with the real progressRef
   function handleLyricSeek(posMs) {
     progressRef.current = posMs;
-    seekBlockUntilRef.current = Date.now() + 2000;
+    setProgress(posMs);                              // snap bar immediately
+    seekBlockUntilRef.current = Date.now() + 1200;  // reduced from 2000ms
     if (lyricsRef.current) {
       setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
     }
@@ -234,13 +237,18 @@ export default function NowPlaying({ onLogout }) {
         e.preventDefault();
         const wasPlaying = playingRef.current;
         playingRef.current = !wasPlaying;
-        togglePlayback(wasPlaying).then(() => setTimeout(poll, 800)).catch(() => {});
+        setPlaying(!wasPlaying); // optimistic
+        togglePlayback(wasPlaying).then(() => setTimeout(poll, 800)).catch(() => {
+          // revert on failure
+          playingRef.current = wasPlaying;
+          setPlaying(wasPlaying);
+        });
       } else if (e.code === 'ArrowRight' && e.shiftKey) {
         e.preventDefault();
-        skipToNext().then(() => setTimeout(poll, 800)).catch(() => {});
+        skipToNext().then(() => setTimeout(poll, 400)).catch(() => {});
       } else if (e.code === 'ArrowLeft' && e.shiftKey) {
         e.preventDefault();
-        skipToPrevious().then(() => setTimeout(poll, 800)).catch(() => {});
+        skipToPrevious().then(() => setTimeout(poll, 400)).catch(() => {});
       } else if (e.key === 'l' || e.key === 'L') {
         setLyricsOpen((v) => !v);
       } else if (e.key === 'r' || e.key === 'R') {
@@ -264,22 +272,37 @@ export default function NowPlaying({ onLogout }) {
   async function handleSkipNext() {
     if (skipCooldownRef.current) return;
     skipCooldownRef.current = true;
-    setTimeout(() => { skipCooldownRef.current = false; }, 1000);
-    await skipToNext();
-    setTimeout(poll, 800);
+    progressRef.current = 0;
+    setProgress(0);             // optimistic reset
+    try {
+      await skipToNext();
+      setTimeout(poll, 400);    // reduced from 800ms
+    } catch {
+      // skip API failed; cooldown still releases via finally
+    } finally {
+      setTimeout(() => { skipCooldownRef.current = false; }, 1000);
+    }
   }
 
   async function handleSkipPrev() {
     if (skipCooldownRef.current) return;
     skipCooldownRef.current = true;
-    setTimeout(() => { skipCooldownRef.current = false; }, 1000);
-    await skipToPrevious();
-    setTimeout(poll, 800);
+    progressRef.current = 0;
+    setProgress(0);             // optimistic reset
+    try {
+      await skipToPrevious();
+      setTimeout(poll, 400);    // reduced from 800ms
+    } catch {
+      // skip API failed; cooldown still releases via finally
+    } finally {
+      setTimeout(() => { skipCooldownRef.current = false; }, 1000);
+    }
   }
 
   async function handleTogglePlayback() {
     const wasPlaying = playingRef.current;
     playingRef.current = !wasPlaying;
+    setPlaying(!wasPlaying);          // optimistic UI update
     await togglePlayback(wasPlaying);
     setTimeout(poll, 800);
   }
@@ -299,7 +322,8 @@ export default function NowPlaying({ onLogout }) {
     const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const posMs = fraction * track.duration_ms;
     progressRef.current = posMs;
-    seekBlockUntilRef.current = Date.now() + 2000;
+    setProgress(posMs);                              // snap bar immediately
+    seekBlockUntilRef.current = Date.now() + 1200;  // reduced from 2000ms
     setSeeking(true);
     setTimeout(() => setSeeking(false), 150);
     seekToPosition(posMs);

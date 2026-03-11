@@ -1,6 +1,20 @@
 import { useState, useCallback, useRef } from 'react';
 import './Toast.css';
 
+// ToastList is a helper component co-located with its hook.
+// eslint-disable-next-line react-refresh/only-export-components
+function ToastList({ toasts }) {
+  return (
+    <div className="toast-container" aria-live="polite" aria-atomic="false">
+      {toasts.map((t) => (
+        <div key={t.id} className="toast">
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * useToast — returns a { showToast } helper and a <ToastContainer /> component.
  *
@@ -21,17 +35,8 @@ export function useToast() {
     }, durationMs);
   }, []);
 
-  // ToastContainer is a stable component that only re-renders when toasts change.
-  // It is defined inside the hook to co-locate it with its state.
-  const ToastContainer = useCallback(() => (
-    <div className="toast-container" aria-live="polite" aria-atomic="false">
-      {toasts.map((t) => (
-        <div key={t.id} className="toast">
-          {t.message}
-        </div>
-      ))}
-    </div>
-  ), [toasts]);
+  // Return a stable wrapper that passes toasts to the stable ToastList component.
+  const ToastContainer = useCallback(() => <ToastList toasts={toasts} />, [toasts]);
 
   return { showToast, ToastContainer };
 }
