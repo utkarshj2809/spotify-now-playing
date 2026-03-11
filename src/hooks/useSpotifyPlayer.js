@@ -87,7 +87,8 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
       progressRef.current += 100;
       setProgress(progressRef.current);
 
-      const lines = lyricsRef?.current;
+      // lyricsRef is a holder: lyricsRef.current is the actual lyricsRef from useLyrics
+      const lines = lyricsRef?.current?.current;
       if (lines && setActiveIdx) {
         setActiveIdx(getActiveLyricIndex(lines, progressRef.current / 1000));
       }
@@ -147,7 +148,7 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
       setTrack(item);
 
       if (setActiveIdx) setActiveIdx(-1);
-      if (lyricsRef) lyricsRef.current = null;
+      if (lyricsRef?.current) lyricsRef.current.current = null;
 
       if (onTrackChange) onTrackChange(item);
     } catch (err) {
@@ -255,7 +256,7 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
 
             setTrack(sdkItem);
             if (setActiveIdx) setActiveIdx(-1);
-            if (lyricsRef) lyricsRef.current = null;
+            if (lyricsRef?.current) lyricsRef.current.current = null;
             if (onTrackChange) onTrackChange(sdkItem);
           }
 
@@ -297,7 +298,6 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
 
     // Initial poll + start polling
     const initTimer = setTimeout(poll, 0);
-    startTicker();
 
     // Adjust poll interval based on SDK readiness
     function startPolling() {
