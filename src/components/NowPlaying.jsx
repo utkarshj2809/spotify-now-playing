@@ -146,34 +146,13 @@ export default function NowPlaying({ onLogout }) {
     img.src = url;
   }, []);
 
-  // -- Lyrics hook
-  const {
-    lyrics,
-    synced,
-    activeIdx,
-    provider,
-    amResults,
-    amPickerOpen,
-    amSelectedId,
-    lyricsRef,
-    setActiveIdx,
-    fetchLyricsForTrack,
-    handleProviderChangeAndFetch,
-    handleAmResultSelect,
-    setAmPickerOpen,
-  } = useLyrics({
-    progressRef: null,
-    setProgress: null,
-    seekToPositionFn: seekToPosition,
-  });
+  // -- Stable forwarder refs to break the circular dependency between hooks
+  // lyricsRefHolder: a ref whose .current holds the actual lyricsRef from useLyrics
+  const lyricsRefHolder         = useRef(null);
+  const fetchLyricsForTrackRef  = useRef(null);
+  const setActiveIdxRef         = useRef(null);
 
-  // -- Track change handler
-  const onTrackChange = useCallback((item) => {
-    extractColor(item.album?.images?.[0]?.url);
-    fetchLyricsForTrack(item);
-  }, [extractColor, fetchLyricsForTrack]);
-
-  // -- Player hook
+  // -- Player hook (called first so we get the real progressRef/setProgress)
   const {
     track,
     playing,
@@ -192,7 +171,50 @@ export default function NowPlaying({ onLogout }) {
     seekBlockUntilRef,
     skipCooldownRef,
     poll,
-  } = useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx });
+  } = useSpotifyPlayer({
+    onTrackChange: useCallback((item) => {
+      setLyricsOpen(true);
+      extractColor(item.album?.images?.[0]?.url);
+      fetchLyricsForTrackRef.current?.(item);
+    }, [extractColor]),
+    lyricsRef: lyricsRefHolder,
+    setActiveIdx: useCallback((i) => setActiveIdxRef.current?.(i), []),
+  });
+
+  // -- Lyrics hook (called after useSpotifyPlayer so we have real progressRef/setProgress)
+  const {
+    lyrics,
+    synced,
+    activeIdx,
+    provider,
+    amResults,
+    amPickerOpen,
+    amSelectedId,
+    lyricsRef,
+    setActiveIdx,
+    fetchLyricsForTrack,
+    handleProviderChangeAndFetch,
+    handleAmResultSelect,
+    setAmPickerOpen,
+  } = useLyrics({
+    progressRef,
+    setProgress,
+    seekToPositionFn: seekToPosition,
+  });
+
+  // Sync forwarders every render so callbacks inside useSpotifyPlayer always see
+  // the latest versions of these functions from useLyrics.
+  // lyricsRefHolder.current points to the stable lyricsRef object from useLyrics
+  // so useSpotifyPlayer can read lyricsRefHolder.current.current for the lyrics array.
+  lyricsRefHolder.current        = lyricsRef;
+  fetchLyricsForTrackRef.current = fetchLyricsForTrack;
+  setActiveIdxRef.current        = setActiveIdx;
+
+  // Bug 5: wrap handleAmResultSelect to always inject real progressRef
+  const handleAmResultSelectWithProgress = useCallback(
+    (result) => handleAmResultSelect(result, progressRef),
+    [handleAmResultSelect, progressRef],
+  );
 
   // Wire up lyrics seek with the real progressRef
   function handleLyricSeek(posMs) {
@@ -550,12 +572,14 @@ export default function NowPlaying({ onLogout }) {
                   e.preventDefault();
                   const newPos = Math.min(progressRef.current + step, track.duration_ms);
                   progressRef.current = newPos;
+                  setProgress(newPos);
                   seekBlockUntilRef.current = Date.now() + 2000;
                   seekToPosition(newPos);
                 } else if (e.key === 'ArrowLeft') {
                   e.preventDefault();
                   const newPos = Math.max(progressRef.current - step, 0);
                   progressRef.current = newPos;
+                  setProgress(newPos);
                   seekBlockUntilRef.current = Date.now() + 2000;
                   seekToPosition(newPos);
                 }
@@ -650,7 +674,7 @@ export default function NowPlaying({ onLogout }) {
                       <li
                         key={r.id}
                         className={`am-picker-item ${amSelectedId === r.id ? 'am-picker-item--selected' : ''}`}
-                        onClick={() => handleAmResultSelect(r, progressRef)}
+                        onClick={() => handleAmResultSelectWithProgress(r)}
                       >
                         {r.artwork && (
                           <img
