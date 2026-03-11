@@ -71,6 +71,29 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
     rateLimitTimerRef.current = setTimeout(() => setIsRateLimited(false), 10_000);
   }, []);
 
+  // ── 100ms progress ticker ─────────────────────────────────────
+  const stopTicker = useCallback(() => {
+    if (tickerRef.current) {
+      clearInterval(tickerRef.current);
+      tickerRef.current = null;
+    }
+  }, []);
+
+  const startTicker = useCallback(() => {
+    if (tickerRef.current) clearInterval(tickerRef.current);
+    tickerRef.current = setInterval(() => {
+      if (document.hidden) return;
+
+      progressRef.current += 100;
+      setProgress(progressRef.current);
+
+      const lines = lyricsRef?.current;
+      if (lines && setActiveIdx) {
+        setActiveIdx(getActiveLyricIndex(lines, progressRef.current / 1000));
+      }
+    }, 100);
+  }, [lyricsRef, setActiveIdx]);
+
   // ── Core poll (REST API fallback) ────────────────────────────
   const poll = useCallback(async () => {
     // Skip progress update if we just seeked
@@ -88,6 +111,7 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
         setTrack(null);
         setPlaying(false);
         playingRef.current = false;
+        stopTicker();
         try {
           const recent = await getRecentlyPlayed();
           if (recent?.items) setRecentlyPlayed(recent.items.slice(0, 5));
@@ -105,8 +129,10 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
 
       playingRef.current = isPlaying;
       setPlaying(isPlaying);
+      if (isPlaying && !tickerRef.current) startTicker();
+      else if (!isPlaying && tickerRef.current) stopTicker();
 
-      if (data.repeat_state) {
+      if (data.repeat_state !== undefined && data.repeat_state !== null) {
         repeatRef.current = data.repeat_state;
         setRepeatState(data.repeat_state);
       }
@@ -132,23 +158,7 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
         setError('Could not reach Spotify. Check your connection and try again.');
       }
     }
-  }, [onTrackChange, lyricsRef, setActiveIdx, markRateLimited]);
-
-  // ── 100ms progress ticker ─────────────────────────────────────
-  const startTicker = useCallback(() => {
-    if (tickerRef.current) clearInterval(tickerRef.current);
-    tickerRef.current = setInterval(() => {
-      if (document.hidden || !playingRef.current) return;
-
-      progressRef.current += 100;
-      setProgress(progressRef.current);
-
-      const lines = lyricsRef?.current;
-      if (lines && setActiveIdx) {
-        setActiveIdx(getActiveLyricIndex(lines, progressRef.current / 1000));
-      }
-    }, 100);
-  }, [lyricsRef, setActiveIdx]);
+  }, [onTrackChange, lyricsRef, setActiveIdx, markRateLimited, startTicker, stopTicker]);
 
   // ── SDK initialization ────────────────────────────────────────
   useEffect(() => {
@@ -183,18 +193,25 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
 
         player.addListener('not_ready', () => {
           setSdkReady(false);
+          const wasActive = sdkActiveRef.current;
           sdkActiveRef.current = false;
+          if (wasActive) startPolling(); // switch back to fast polling
         });
 
         player.addListener('player_state_changed', (state) => {
           if (destroyed) return;
           if (!state) {
             // SDK player is not the active device; rely on polling
+            const wasActive = sdkActiveRef.current;
             sdkActiveRef.current = false;
+            if (wasActive) startPolling(); // switch back to fast polling
             return;
           }
 
+          const wasActive = sdkActiveRef.current;
           sdkActiveRef.current = true;
+          if (!wasActive) startPolling(); // switch to slow polling now that SDK is active
+
           const ct = state.track_window?.current_track;
           if (!ct) return;
 
@@ -209,6 +226,8 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
 
           playingRef.current = isPlaying;
           setPlaying(isPlaying);
+          if (isPlaying && !tickerRef.current) startTicker();
+          else if (!isPlaying && tickerRef.current) stopTicker();
 
           const rmMap = { 0: 'off', 1: 'context', 2: 'track' };
           const rm = rmMap[state.repeat_mode] ?? 'off';
@@ -321,7 +340,9 @@ export function useSpotifyPlayer({ onTrackChange, lyricsRef, setActiveIdx }) {
   return {
     track,
     playing,
+    setPlaying,
     progress,
+    setProgress,
     progressRef,
     playingRef,
     repeatState,

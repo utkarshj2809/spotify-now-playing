@@ -53,7 +53,7 @@ export default function Lyrics({ lines, activeIndex, isSynced, progressSec, onSe
 
           return (
             <li
-              key={i}
+              key={`${trackId}-${i}`}
               ref={isActive ? activeRef : null}
               role="listitem"
               aria-current={isActive ? true : undefined}
