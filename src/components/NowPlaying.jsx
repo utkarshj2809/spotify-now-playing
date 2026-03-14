@@ -1,12 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   logout,
-  skipToNext,
-  skipToPrevious,
-  seekToPosition,
-  togglePlayback,
-  setRepeatMode,
-  playTrack,
 } from '../utils/spotify';
 import { getActiveLyricIndex } from '../utils/lrclib';
 import {
@@ -16,8 +10,6 @@ import {
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { useLyrics } from '../hooks/useLyrics';
 import Lyrics from './Lyrics';
-import PlayerControls from './PlayerControls';
-import QueuePanel from './QueuePanel';
 import ShortcutHelp from './ShortcutHelp';
 import ThemePicker from './ThemePicker';
 import { useToast } from './Toast';
@@ -106,7 +98,6 @@ export default function NowPlaying({ onLogout }) {
   const [accentColor,      setAccentColor]      = useState('rgb(18,18,18)');
   const [projector,        setProjector]        = useState(false);
   const [lyricsOpen,       setLyricsOpen]       = useState(true);
-  const [queueOpen,        setQueueOpen]        = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [themePreset,      setThemePreset]      = useState(
     () => localStorage.getItem('np-theme') || 'dark',
@@ -118,10 +109,7 @@ export default function NowPlaying({ onLogout }) {
   const [activeBg, setActiveBg] = useState('a');
   const activeBgRef = useRef('a');
 
-  // Progress bar seeking state
-  const [seeking, setSeeking] = useState(false);
-
-  const { showToast, ToastContainer } = useToast();
+  const { ToastContainer } = useToast();
   const hiddenImgRef = useRef(null);
 
   // -- Color extraction
@@ -156,20 +144,13 @@ export default function NowPlaying({ onLogout }) {
   const {
     track,
     playing,
-    setPlaying,
     progress,
     setProgress,
     progressRef,
-    playingRef,
-    repeatState,
-    repeatRef,
-    queue,
     recentlyPlayed,
     error,
     setError,
     isRateLimited,
-    seekBlockUntilRef,
-    skipCooldownRef,
     poll,
   } = useSpotifyPlayer({
     onTrackChange: useCallback((item) => {
@@ -199,7 +180,6 @@ export default function NowPlaying({ onLogout }) {
   } = useLyrics({
     progressRef,
     setProgress,
-    seekToPositionFn: seekToPosition,
   });
 
   // Sync forwarders every render so callbacks inside useSpotifyPlayer always see
@@ -215,17 +195,6 @@ export default function NowPlaying({ onLogout }) {
     (result) => handleAmResultSelect(result, progressRef),
     [handleAmResultSelect, progressRef],
   );
-
-  // Wire up lyrics seek with the real progressRef
-  function handleLyricSeek(posMs) {
-    progressRef.current = posMs;
-    setProgress(posMs);                              // snap bar immediately
-    seekBlockUntilRef.current = Date.now() + 1200;  // reduced from 2000ms
-    if (lyricsRef.current) {
-      setActiveIdx(getActiveLyricIndex(lyricsRef.current, posMs / 1000));
-    }
-    seekToPosition(posMs);
-  }
 
   // -- Apply theme
   useEffect(() => {
@@ -255,107 +224,19 @@ export default function NowPlaying({ onLogout }) {
   useEffect(() => {
     function onKeyDown(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.code === 'Space') {
-        e.preventDefault();
-        const wasPlaying = playingRef.current;
-        playingRef.current = !wasPlaying;
-        setPlaying(!wasPlaying); // optimistic
-        togglePlayback(wasPlaying).then(() => setTimeout(poll, 800)).catch(() => {
-          // revert on failure
-          playingRef.current = wasPlaying;
-          setPlaying(wasPlaying);
-        });
-      } else if (e.code === 'ArrowRight' && e.shiftKey) {
-        e.preventDefault();
-        skipToNext().then(() => setTimeout(poll, 400)).catch(() => {});
-      } else if (e.code === 'ArrowLeft' && e.shiftKey) {
-        e.preventDefault();
-        skipToPrevious().then(() => setTimeout(poll, 400)).catch(() => {});
-      } else if (e.key === 'l' || e.key === 'L') {
+      if (e.key === 'l' || e.key === 'L') {
         setLyricsOpen((v) => !v);
-      } else if (e.key === 'r' || e.key === 'R') {
-        const cycle = { off: 'context', context: 'track', track: 'off' };
-        const newRepeat = cycle[repeatRef.current] ?? 'off';
-        repeatRef.current = newRepeat;
-        setRepeatMode(newRepeat).catch(() => {});
       } else if (e.key === '?') {
         setShortcutHelpOpen((v) => !v);
       }
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // -- Handlers
   function handleLogout() { logout(); onLogout(); }
   function retry() { setError(''); poll(); }
-
-  async function handleSkipNext() {
-    if (skipCooldownRef.current) return;
-    skipCooldownRef.current = true;
-    progressRef.current = 0;
-    setProgress(0);             // optimistic reset
-    try {
-      await skipToNext();
-      setTimeout(poll, 400);    // reduced from 800ms
-    } catch {
-      // skip API failed; cooldown still releases via finally
-    } finally {
-      setTimeout(() => { skipCooldownRef.current = false; }, 1000);
-    }
-  }
-
-  async function handleSkipPrev() {
-    if (skipCooldownRef.current) return;
-    skipCooldownRef.current = true;
-    progressRef.current = 0;
-    setProgress(0);             // optimistic reset
-    try {
-      await skipToPrevious();
-      setTimeout(poll, 400);    // reduced from 800ms
-    } catch {
-      // skip API failed; cooldown still releases via finally
-    } finally {
-      setTimeout(() => { skipCooldownRef.current = false; }, 1000);
-    }
-  }
-
-  async function handleTogglePlayback() {
-    const wasPlaying = playingRef.current;
-    playingRef.current = !wasPlaying;
-    setPlaying(!wasPlaying);          // optimistic UI update
-    await togglePlayback(wasPlaying);
-    setTimeout(poll, 800);
-  }
-
-  async function handleToggleRepeat() {
-    const cycle = { off: 'context', context: 'track', track: 'off' };
-    const newState = cycle[repeatRef.current] ?? 'off';
-    repeatRef.current = newState;
-    await setRepeatMode(newState);
-    const labels = { off: '\ud83d\udd01 Repeat off', context: '\ud83d\udd01 Repeat all', track: '\ud83d\udd02 Repeat one' };
-    showToast(labels[newState] ?? '\ud83d\udd01 Repeat');
-  }
-
-  function handleSeek(e) {
-    if (!track?.duration_ms) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const posMs = fraction * track.duration_ms;
-    progressRef.current = posMs;
-    setProgress(posMs);                              // snap bar immediately
-    seekBlockUntilRef.current = Date.now() + 1200;  // reduced from 2000ms
-    setSeeking(true);
-    setTimeout(() => setSeeking(false), 150);
-    seekToPosition(posMs);
-  }
-
-  async function handlePlayFromQueue(t) {
-    await playTrack(t.uri);
-    showToast(`Playing ${t.name}`);
-    setTimeout(poll, 800);
-  }
 
   // -- Render: error
   if (error) {
@@ -410,8 +291,7 @@ export default function NowPlaying({ onLogout }) {
   const pct      = track.duration_ms ? Math.min(progress / track.duration_ms, 1) * 100 : 0;
   const hasLyrics = Array.isArray(lyrics) && lyrics.length > 0;
   const lyricsPanelOpen = amPickerOpen || (hasLyrics && lyricsOpen);
-  const queuePanelOpen  = queueOpen && queue.length > 0;
-  const panelOpen = lyricsPanelOpen || queuePanelOpen;
+  const panelOpen = lyricsPanelOpen;
 
   // -- Render: projector mode
   if (projector) {
@@ -552,59 +432,28 @@ export default function NowPlaying({ onLogout }) {
             <p className="np-album">{album}</p>
           </div>
 
-          {/* Clickable progress / scrubber */}
+          {/* Progress bar */}
           <div className="np-scrubber">
             <span className="np-time">{fmt(progress)}</span>
             <div
-              className="np-bar-track np-bar-track--seekable"
-              role="slider"
-              tabIndex={0}
+              className="np-bar-track"
+              role="progressbar"
               aria-valuenow={Math.round(pct)}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-label="Track progress"
               aria-valuetext={`${fmt(progress)} of ${fmt(track.duration_ms)}`}
-              onClick={handleSeek}
-              onKeyDown={(e) => {
-                if (!track?.duration_ms) return;
-                const step = 5000;
-                if (e.key === 'ArrowRight') {
-                  e.preventDefault();
-                  const newPos = Math.min(progressRef.current + step, track.duration_ms);
-                  progressRef.current = newPos;
-                  setProgress(newPos);
-                  seekBlockUntilRef.current = Date.now() + 2000;
-                  seekToPosition(newPos);
-                } else if (e.key === 'ArrowLeft') {
-                  e.preventDefault();
-                  const newPos = Math.max(progressRef.current - step, 0);
-                  progressRef.current = newPos;
-                  setProgress(newPos);
-                  seekBlockUntilRef.current = Date.now() + 2000;
-                  seekToPosition(newPos);
-                }
-              }}
             >
               <div
-                className={`np-bar-fill${seeking ? ' np-bar-fill--seeking' : ''}`}
+                className="np-bar-fill"
                 style={{ width: `${pct}%` }}
               />
             </div>
             <span className="np-time">{fmt(track.duration_ms)}</span>
           </div>
 
-          {/* Playback controls */}
+          {/* Pill toggles row */}
           <div className="np-controls">
-            <PlayerControls
-              playing={playing}
-              repeatState={repeatState}
-              onTogglePlayback={handleTogglePlayback}
-              onSkipNext={handleSkipNext}
-              onSkipPrev={handleSkipPrev}
-              onToggleRepeat={handleToggleRepeat}
-            />
-
-            {/* Pill toggles row */}
             <div className="np-pill-row">
               {hasLyrics && (
                 <button
@@ -615,19 +464,6 @@ export default function NowPlaying({ onLogout }) {
                     <path d="M3 6h18M3 12h18M3 18h12" />
                   </svg>
                   Lyrics
-                </button>
-              )}
-              {queue.length > 0 && (
-                <button
-                  className={`np-lyrics-toggle ${queueOpen ? 'active' : ''}`}
-                  onClick={() => setQueueOpen((v) => !v)}
-                  title="Up Next queue"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 5h18M3 10h18M3 15h12" />
-                    <path d="M17 17l3 2.5-3 2.5V17z" strokeLinejoin="round" strokeLinecap="round" />
-                  </svg>
-                  Up Next
                 </button>
               )}
               {provider === 'apple-music' && amResults.length > 0 && (
@@ -699,20 +535,10 @@ export default function NowPlaying({ onLogout }) {
                 activeIndex={activeIdx}
                 isSynced={synced}
                 progressSec={progress / 1000}
-                onSeek={handleLyricSeek}
                 trackId={track.id}
               />
             )}
           </section>
-        )}
-
-        {/* Right panel: Up Next queue */}
-        {queuePanelOpen && (
-          <QueuePanel
-            queue={queue}
-            onClose={() => setQueueOpen(false)}
-            onPlayFromQueue={handlePlayFromQueue}
-          />
         )}
       </main>
 

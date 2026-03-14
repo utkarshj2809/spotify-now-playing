@@ -1,12 +1,7 @@
 import { useEffect } from 'react';
 
 const SHORTCUTS = [
-  { key: 'Space',        action: 'Play / Pause'           },
-  { key: 'Shift + →',   action: 'Next track'              },
-  { key: 'Shift + ←',   action: 'Previous track'          },
   { key: 'L',           action: 'Toggle lyrics'           },
-  { key: 'R',           action: 'Cycle repeat mode'       },
-  { key: '← / →',      action: 'Seek ±5s (progress bar)' },
   { key: '?',           action: 'Show / hide this help'   },
 ];
 
