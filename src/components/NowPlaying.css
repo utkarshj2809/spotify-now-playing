@@ -202,17 +202,6 @@
   transition: height 0.18s ease, background 0.18s ease;
 }
 
-/* Clickable / seekable variant */
-.np-bar-track--seekable {
-  cursor: pointer;
-}
-.np-bar-track--seekable:hover {
-  height: 7px;
-  background: rgba(255,255,255,0.22);
-}
-.np-bar-track--seekable:hover .np-bar-fill {
-  background: var(--accent-bright, #1ed760);
-}
 
 .np-bar-fill {
   height: 100%;
@@ -238,70 +227,7 @@
   width: 100%;
 }
 
-/* ── Playback row (prev / status / next) ── */
-.np-playback-row {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-/* Skip buttons */
-.np-skip-btn {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  width: 38px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-2);
-  transition: background var(--transition), color var(--transition), transform var(--transition), border-color var(--transition);
-  flex-shrink: 0;
-}
-.np-skip-btn svg { width: 17px; height: 17px; }
-.np-skip-btn:hover {
-  background: rgba(255,255,255,0.14);
-  color: var(--text-1);
-  border-color: rgba(255,255,255,0.18);
-  transform: scale(1.08);
-}
-.np-skip-btn:active { transform: scale(0.93); }
-
-/* Shuffle active state */
-.np-skip-btn--active {
-  color: var(--accent);
-  border-color: rgba(29,185,84,0.35);
-  background: rgba(29,185,84,0.1);
-}
-.np-skip-btn--active:hover {
-  background: rgba(29,185,84,0.18);
-  color: var(--accent-bright, #1ed760);
-  border-color: rgba(29,185,84,0.5);
-}
-
-/* Play / Pause button (primary action) */
-.np-play-btn {
-  background: var(--text-1);
-  border: none;
-  border-radius: var(--radius-full);
-  width: 50px;
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #000;
-  transition: background var(--transition), transform var(--transition);
-  flex-shrink: 0;
-}
-.np-play-btn svg { width: 20px; height: 20px; }
-.np-play-btn:hover {
-  background: var(--accent-bright, #1ed760);
-  transform: scale(1.06);
-}
-.np-play-btn:active { transform: scale(0.94); }
-
-/* ── Pill toggles row (Lyrics / Up Next / Match) ── */
+/* ── Pill toggles row (Lyrics / Match) ── */
 .np-pill-row {
   display: flex;
   align-items: center;
@@ -531,111 +457,6 @@
   flex-direction: column;
 }
 
-/* ── Queue panel ("Up Next") ──────────────────────────────── */
-
-/* Desktop: right sidebar column */
-.np-queue-panel {
-  flex: 0 0 280px;
-  min-width: 0;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.np-queue {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-
-.np-queue-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px 12px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-3);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  flex-shrink: 0;
-}
-
-.np-queue-list {
-  list-style: none;
-  overflow-y: auto;
-  flex: 1;
-  padding: 8px 10px 16px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.12) transparent;
-}
-.np-queue-list::-webkit-scrollbar { width: 4px; }
-.np-queue-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
-
-.np-queue-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  transition: background var(--transition);
-}
-.np-queue-item:hover { background: rgba(255,255,255,0.07); }
-
-.np-queue-num {
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-3);
-  min-width: 16px;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.np-queue-art {
-  width: 44px;
-  height: 44px;
-  border-radius: 7px;
-  object-fit: cover;
-  flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-}
-
-.np-queue-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  flex: 1;
-}
-
-.np-queue-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.np-queue-artist {
-  font-size: 0.76rem;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.np-queue-dur {
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-
 /* ── Idle / error / nothing-playing screens ──────────────── */
 .np-center-screen {
   width: 100%;
@@ -818,27 +639,6 @@
     min-height: 320px;
     flex: 0 0 320px;
   }
-  /* Queue panel: compact popup-style block on mobile */
-  .np-queue-panel {
-    width: 100%;
-    flex: 0 0 auto;
-    max-height: 260px;
-    min-height: 140px;
-  }
-  /* Larger tap targets on touch screens */
-  .np-skip-btn {
-    width: 44px;
-    height: 44px;
-  }
-  .np-play-btn {
-    width: 54px;
-    height: 54px;
-  }
-  /* Slightly taller seek bar for easier touch */
-  .np-bar-track--seekable { height: 5px; }
-  /* Queue panel on mobile */
-  .np-queue-item { padding: 10px 12px; }
-  .np-queue-art { width: 40px; height: 40px; }
 }
 
 @media (max-width: 480px) {
@@ -847,10 +647,6 @@
   .np-track { font-size: 1.3rem; }
   /* Compact header on small phones — hide provider toggle labels */
   .np-provider-btn { padding: 4px 8px; font-size: 0.68rem; }
-  /* Slightly smaller skip icons on tiny screens */
-  .np-skip-btn { width: 42px; height: 42px; }
-  .np-skip-btn svg { width: 15px; height: 15px; }
-  .np-play-btn { width: 50px; height: 50px; }
 }
 
 /* ── Volume row ─────────────────────────────────────────────── */
@@ -919,45 +715,6 @@
   vertical-align: middle;
   margin-left: 0.35rem;
   user-select: none;
-}
-
-/* ── Repeat button ──────────────────────────────────────────── */
-.np-repeat-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--text-2);
-  transition: color var(--transition), background var(--transition);
-  position: relative;
-}
-
-.np-repeat-btn svg {
-  width: 18px;
-  height: 18px;
-  pointer-events: none;
-}
-
-.np-repeat-btn:hover { color: var(--text-1); background: rgba(255,255,255,0.08); }
-
-.np-repeat-active {
-  color: var(--accent) !important;
-}
-
-.np-repeat-one::after {
-  content: '1';
-  position: absolute;
-  bottom: 7px;
-  right: 7px;
-  font-size: 0.55rem;
-  font-weight: 800;
-  line-height: 1;
-  color: var(--accent);
 }
 
 /* ── Like button ────────────────────────────────────────────── */
@@ -1089,10 +846,6 @@
   to   { opacity: 1; transform: translateX(0); }
 }
 .np-lyrics-panel { animation: panel-slidein 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-.np-queue-panel  { animation: panel-slidein 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-
-/* ── Progress bar: no transition when seeking ───────────────── */
-.np-bar-fill--seeking { transition: none !important; }
 
 /* ── Progress bar track: allow thumb to overflow ────────────── */
 .np-bar-track {
@@ -1103,24 +856,6 @@
   position: relative;
   overflow: hidden; /* keep fill clipped */
   border-radius: 4px;
-}
-
-/* Progress bar thumb pseudo-element */
-.np-bar-fill::after {
-  content: '';
-  position: absolute;
-  right: -5px;
-  top: 50%;
-  transform: translateY(-50%) scale(0);
-  width: 12px;
-  height: 12px;
-  background: white;
-  border-radius: 50%;
-  transition: transform 0.15s ease;
-  pointer-events: none;
-}
-.np-bar-track--seekable:hover .np-bar-fill::after {
-  transform: translateY(-50%) scale(1);
 }
 
 /* ── Rate limit badge ───────────────────────────────────────── */
@@ -1136,14 +871,6 @@
   font-weight: 600;
   color: #ffaa00;
   white-space: nowrap;
-}
-
-/* ── Queue item: clickable ──────────────────────────────────── */
-.np-queue-item--clickable {
-  cursor: pointer;
-}
-.np-queue-item--clickable:hover {
-  background: rgba(255,255,255,0.1);
 }
 
 /* ── Theme picker ───────────────────────────────────────────── */
